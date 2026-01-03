@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Applications | JobTracker{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <h1 style="margin: 0;">Applications</h1>
+        <a class="btn" href="{% url 'tracker:application_create' %}">+ New Application</a>
+    </div>
+
+    <form method="get" class="filter-row">
+        <div style="min-width: 200px;">
+            <label for="status">Status</label>
+            <select name="status" id="status">
+                <option value="">All</option>
+                {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if value == status_filter %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="min-width: 180px;">
+            <label for="due">Follow-up</label>
+            <select name="due" id="due">
+                <option value="">All</option>
+                <option value="1" {% if due_filter == "1" %}selected{% endif %}>Due for follow-up</option>
+            </select>
+        </div>
+        <div>
+            <button class="btn secondary" type="submit">Filter</button>
+            <a class="btn secondary" href="{% url 'tracker:application_list' %}">Reset</a>
+        </div>
+    </form>
+
+    {% if applications %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Applied</th>
+                    <th>Follow-up</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for application in applications %}
+                    <tr>
+                        <td>
+                            <div style="font-weight: 700;">{{ application.job.title }}</div>
+                            <div>{{ application.job.company }}</div>
+                            {% if application.job.location %}<div style="color: #52606d;">{{ application.job.location }}</div>{% endif %}
+                            {% if application.job.job_url %}
+                                <div><a href="{{ application.job.job_url }}" target="_blank" rel="noopener">View posting</a></div>
+                            {% endif %}
+                        </td>
+                        <td>{{ application.get_status_display }}</td>
+                        <td>{{ application.applied_at|date:"M d, Y H:i"|default:"—" }}</td>
+                        <td>{{ application.follow_up_at|date:"M d, Y H:i"|default:"—" }}</td>
+                        <td>{{ application.notes|default:"—" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No applications yet. Start by adding one.</p>
+    {% endif %}
+</div>
+{% endblock %}

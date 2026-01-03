@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}New Application | JobTracker{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1 style="margin-top: 0;">Add a Job Application</h1>
+    <p style="color: #52606d;">Enter the job details and current status in one go.</p>
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+        {% for field in form %}
+            <div style="margin-bottom: 12px;">
+                {{ field.label_tag }}
+                {{ field }}
+                {% if field.help_text %}<small style="color: #52606d;">{{ field.help_text }}</small>{% endif %}
+                {% if field.errors %}
+                    <div style="color: #b42318;">{{ field.errors|striptags }}</div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        <button class="btn" type="submit">Save Application</button>
+        <a class="btn secondary" href="{% url 'tracker:application_list' %}">Cancel</a>
+    </form>
+</div>
+{% endblock %}
