@@ -1,6 +1,6 @@
 .PHONY: check test test-fast
 
-PYTHON ?= python3
+PYTHON ?= $(if $(wildcard ./.venv/bin/python),./.venv/bin/python,python3)
 
 check:
 	$(PYTHON) manage.py check

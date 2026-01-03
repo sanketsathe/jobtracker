@@ -26,8 +26,9 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 `python manage.py runserver` then log in at `/accounts/login/`
 
 ## Quick verify
-- `make check` — Django checks
+- `docker compose up -d`
 - `make test-fast` — run tracker app tests
+- `make check` — Django checks
 - `make test` — full test suite
 
 ## Notes
