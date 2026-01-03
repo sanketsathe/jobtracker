@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -28,6 +29,14 @@ class JobLead(models.Model):
     is_scam_suspected = models.BooleanField(default=False)
     scam_reasons = models.TextField(blank=True)
 
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="job_leads",
+        null=True,
+        blank=True,
+    )
+
     discovered_at = models.DateTimeField(default=timezone.now)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -55,6 +64,14 @@ class Application(models.Model):
     follow_up_at = models.DateTimeField(null=True, blank=True)
 
     notes = models.TextField(blank=True)
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="applications",
+        null=True,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

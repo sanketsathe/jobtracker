@@ -23,6 +23,9 @@ class ApplicationListView(LoginRequiredMixin, ListView):
             .order_by("-updated_at")
         )
 
+        if not self.request.user.is_superuser:
+            queryset = queryset.filter(owner=self.request.user)
+
         status_filter = self.request.GET.get("status")
         if status_filter:
             queryset = queryset.filter(status=status_filter)
@@ -50,6 +53,11 @@ class ApplicationCreateView(LoginRequiredMixin, FormView):
     template_name = "tracker/application_form.html"
     form_class = NewApplicationForm
     success_url = reverse_lazy("tracker:application_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
 
     def form_valid(self, form):
         application = form.save()

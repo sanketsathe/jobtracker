@@ -1,10 +1,15 @@
 from django import forms
+from django.db import transaction
 
 from .models import Application, JobLead
 
 
 class NewApplicationForm(forms.Form):
     """Create a JobLead and initial Application together."""
+
+    def __init__(self, *args, user=None, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
 
     company = forms.CharField(label="Company", max_length=200)
     title = forms.CharField(label="Job Title", max_length=200)
@@ -42,19 +47,22 @@ class NewApplicationForm(forms.Form):
         Assumes form.is_valid() has already been called.
         """
 
-        job = JobLead.objects.create(
-            company=self.cleaned_data["company"],
-            title=self.cleaned_data["title"],
-            location=self.cleaned_data.get("location", ""),
-            work_mode=self.cleaned_data["work_mode"],
-            source=self.cleaned_data["source"],
-            job_url=self.cleaned_data.get("job_url", ""),
-            jd_text=self.cleaned_data.get("jd_text", ""),
-        )
+        with transaction.atomic():
+            job = JobLead.objects.create(
+                company=self.cleaned_data["company"],
+                title=self.cleaned_data["title"],
+                location=self.cleaned_data.get("location", ""),
+                work_mode=self.cleaned_data["work_mode"],
+                source=self.cleaned_data["source"],
+                job_url=self.cleaned_data.get("job_url", ""),
+                jd_text=self.cleaned_data.get("jd_text", ""),
+                owner=self.user,
+            )
 
-        application = Application.objects.create(
-            job=job,
-            status=self.cleaned_data["status"],
-            notes=self.cleaned_data.get("notes", ""),
-        )
+            application = Application.objects.create(
+                job=job,
+                status=self.cleaned_data["status"],
+                notes=self.cleaned_data.get("notes", ""),
+                owner=self.user,
+            )
         return application
