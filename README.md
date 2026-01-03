@@ -25,6 +25,11 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 6) Run server  
 `python manage.py runserver` then log in at `/accounts/login/`
 
+## Quick verify
+- `make check` — Django checks
+- `make test-fast` — run tracker app tests
+- `make test` — full test suite
+
 ## Notes
 - Dashboard routes: `/` and `/applications/`; creation at `/applications/new/`.
 - Logout is POST-only per Django 5; nav uses a small form.

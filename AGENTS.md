@@ -19,9 +19,10 @@
 - Avoid dependency sprawl; explain before adding anything new.
 - Prefer Django built-ins; minimal custom JS/CSS.
 - Keep templates simple and readable; favor class-based views already used.
+- Every feature or bugfix must include tests; run them before finishing.
 
 ## How to work (checklist)
 - Identify the target files and read existing patterns first.
 - Implement the change with minimal surface area.
-- Run sanity commands: `./manage.py check`, migrations/tests if affected, and `python manage.py runserver` to smoke-test.
+- Run sanity commands: `./manage.py check`, migrations/tests if affected, and `python manage.py runserver` to smoke-test. Always run tests (`python manage.py test tracker` minimum) before concluding.
 - Summarize what changed and note any manual follow-up.
