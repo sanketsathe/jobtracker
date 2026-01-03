@@ -25,6 +25,9 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 6) Run server  
 `python manage.py runserver` then log in at `/accounts/login/`
 
+## CI
+- GitHub Actions runs Django checks, migrations, and `python manage.py test tracker` against Postgres on pushes and pull requests to `main`.
+
 ## Quick verify
 - `docker compose up -d`
 - `make test-fast` — run tracker app tests
