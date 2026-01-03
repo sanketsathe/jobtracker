@@ -2,9 +2,9 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 from django.utils import timezone
-from django.views.generic import FormView, ListView
+from django.views.generic import FormView, ListView, UpdateView
 
-from .forms import NewApplicationForm
+from .forms import NewApplicationForm, ApplicationUpdateForm
 from .models import Application
 
 
@@ -45,6 +45,25 @@ class ApplicationListView(LoginRequiredMixin, ListView):
         context["due_filter"] = self.request.GET.get("due", "")
         context["status_choices"] = Application.Status.choices
         return context
+
+
+class ApplicationUpdateView(LoginRequiredMixin, UpdateView):
+    model = Application
+    form_class = ApplicationUpdateForm
+    template_name = "tracker/application_update_form.html"
+    success_url = reverse_lazy("tracker:application_list")
+    context_object_name = "application"
+
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related("job")
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(owner=self.request.user)
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Application updated.")
+        return response
 
 
 class ApplicationCreateView(LoginRequiredMixin, FormView):

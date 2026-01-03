@@ -111,3 +111,147 @@ class ApplicationCreateFlowTests(TestCase):
 
         self.assertEqual(JobLead.objects.count(), 0)
         self.assertEqual(Application.objects.count(), 0)
+
+
+class ApplicationEditFlowTests(TestCase):
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user(
+            username="alice", password="password123"
+        )
+        self.other_user = get_user_model().objects.create_user(
+            username="bob", password="password123"
+        )
+        self.admin = get_user_model().objects.create_superuser(
+            username="admin", email="admin@example.com", password="password123"
+        )
+
+        self.job = JobLead.objects.create(company="ACME", title="Engineer", owner=self.owner)
+        self.application = Application.objects.create(
+            job=self.job,
+            status=Application.Status.DISCOVERED,
+            owner=self.owner,
+        )
+        self.edit_url = reverse("tracker:application_edit", args=[self.application.pk])
+
+    def test_owner_can_edit_application(self):
+        self.client.login(username="alice", password="password123")
+        custom_follow_up = (timezone.now() + timedelta(days=2)).replace(second=0, microsecond=0)
+        follow_up_input = timezone.localtime(custom_follow_up)
+
+        response = self.client.post(
+            self.edit_url,
+            {
+                "status": Application.Status.SHORTLISTED,
+                "notes": "Updated notes",
+                "follow_up_at": follow_up_input.strftime("%Y-%m-%dT%H:%M"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, Application.Status.SHORTLISTED)
+        self.assertEqual(self.application.notes, "Updated notes")
+        self.assertEqual(self.application.follow_up_at, custom_follow_up)
+
+    def test_non_owner_cannot_edit_application(self):
+        self.client.login(username="bob", password="password123")
+
+        get_response = self.client.get(self.edit_url)
+        post_response = self.client.post(
+            self.edit_url,
+            {
+                "status": Application.Status.INTERVIEW,
+                "notes": "Should not work",
+                "follow_up_at": "",
+            },
+        )
+
+        self.assertEqual(get_response.status_code, 404)
+        self.assertEqual(post_response.status_code, 404)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, Application.Status.DISCOVERED)
+
+    def test_superuser_can_edit_any_application(self):
+        self.client.login(username="admin", password="password123")
+
+        response = self.client.post(
+            self.edit_url,
+            {
+                "status": Application.Status.INTERVIEW,
+                "notes": "Admin update",
+                "follow_up_at": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, Application.Status.INTERVIEW)
+        self.assertEqual(self.application.notes, "Admin update")
+
+    def test_edit_applied_sets_and_preserves_timestamps(self):
+        self.client.login(username="alice", password="password123")
+        fixed_now = timezone.now().replace(microsecond=0)
+
+        with patch("tracker.models.timezone.now", return_value=fixed_now):
+            response = self.client.post(
+                self.edit_url,
+                {
+                    "status": Application.Status.APPLIED,
+                    "notes": "",
+                    "follow_up_at": "",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.applied_at, fixed_now)
+        self.assertEqual(self.application.follow_up_at, fixed_now + timedelta(days=3))
+
+        existing_applied_at = fixed_now - timedelta(days=5)
+        existing_application = Application.objects.create(
+            job=self.job,
+            status=Application.Status.SHORTLISTED,
+            applied_at=existing_applied_at,
+            follow_up_at=None,
+            owner=self.owner,
+        )
+
+        response = self.client.post(
+            reverse("tracker:application_edit", args=[existing_application.pk]),
+            {
+                "status": Application.Status.APPLIED,
+                "notes": "Keep original applied_at",
+                "follow_up_at": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        existing_application.refresh_from_db()
+        self.assertEqual(existing_application.applied_at, existing_applied_at)
+        self.assertEqual(
+            existing_application.follow_up_at,
+            existing_applied_at + timedelta(days=3),
+        )
+
+        custom_follow_up = (fixed_now + timedelta(days=10)).replace(second=0, microsecond=0)
+        follow_up_input = timezone.localtime(custom_follow_up)
+        another_application = Application.objects.create(
+            job=self.job,
+            status=Application.Status.DISCOVERED,
+            owner=self.owner,
+        )
+
+        with patch("tracker.models.timezone.now", return_value=fixed_now):
+            response = self.client.post(
+                reverse("tracker:application_edit", args=[another_application.pk]),
+                {
+                    "status": Application.Status.APPLIED,
+                    "notes": "",
+                    "follow_up_at": follow_up_input.strftime("%Y-%m-%dT%H:%M"),
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        another_application.refresh_from_db()
+        self.assertEqual(another_application.applied_at, fixed_now)
+        self.assertEqual(another_application.follow_up_at, custom_follow_up)

@@ -66,3 +66,22 @@ class NewApplicationForm(forms.Form):
                 owner=self.user,
             )
         return application
+
+
+class ApplicationUpdateForm(forms.ModelForm):
+    class Meta:
+        model = Application
+        fields = ["status", "notes", "follow_up_at"]
+        widgets = {
+            "notes": forms.Textarea(attrs={"rows": 4}),
+            "follow_up_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        follow_up_field = self.fields.get("follow_up_at")
+        if follow_up_field:
+            follow_up_field.input_formats = ["%Y-%m-%dT%H:%M", *follow_up_field.input_formats]

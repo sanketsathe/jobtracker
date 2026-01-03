@@ -41,6 +41,7 @@
                     <th>Applied</th>
                     <th>Follow-up</th>
                     <th>Notes</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -58,6 +59,7 @@
                         <td>{{ application.applied_at|date:"M d, Y H:i"|default:"—" }}</td>
                         <td>{{ application.follow_up_at|date:"M d, Y H:i"|default:"—" }}</td>
                         <td>{{ application.notes|default:"—" }}</td>
+                        <td><a class="btn secondary" href="{% url 'tracker:application_edit' application.pk %}">Edit</a></td>
                     </tr>
                 {% endfor %}
             </tbody>
