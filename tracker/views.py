@@ -1,11 +1,12 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.utils import timezone
-from django.views.generic import FormView, ListView, UpdateView
+from django.views.generic import DeleteView, FormView, ListView, UpdateView
 
 from .forms import NewApplicationForm, ApplicationUpdateForm
-from .models import Application
+from .models import Application, JobLead
 
 
 class ApplicationListView(LoginRequiredMixin, ListView):
@@ -84,3 +85,27 @@ class ApplicationCreateView(LoginRequiredMixin, FormView):
             self.request, f"Application for {application.job.company} saved."
         )
         return super().form_valid(form)
+
+
+class ApplicationDeleteView(LoginRequiredMixin, DeleteView):
+    model = Application
+    template_name = "tracker/application_confirm_delete.html"
+    success_url = reverse_lazy("tracker:application_list")
+    context_object_name = "application"
+
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related("job")
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(owner=self.request.user)
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        job_id = self.object.job_id
+        self.object.delete()
+
+        if job_id and not Application.objects.filter(job_id=job_id).exists():
+            JobLead.objects.filter(pk=job_id).delete()
+
+        messages.success(request, "Application deleted.")
+        return HttpResponseRedirect(self.get_success_url())

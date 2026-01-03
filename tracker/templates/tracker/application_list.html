@@ -59,7 +59,12 @@
                         <td>{{ application.applied_at|date:"M d, Y H:i"|default:"—" }}</td>
                         <td>{{ application.follow_up_at|date:"M d, Y H:i"|default:"—" }}</td>
                         <td>{{ application.notes|default:"—" }}</td>
-                        <td><a class="btn secondary" href="{% url 'tracker:application_edit' application.pk %}">Edit</a></td>
+                        <td>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <a class="btn secondary" href="{% url 'tracker:application_edit' application.pk %}">Edit</a>
+                                <a class="btn secondary" href="{% url 'tracker:application_delete' application.pk %}">Delete</a>
+                            </div>
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>

@@ -1,6 +1,6 @@
 from django.urls import path
 from django.views.generic import RedirectView
-from .views import ApplicationListView, ApplicationCreateView, ApplicationUpdateView
+from .views import ApplicationListView, ApplicationCreateView, ApplicationUpdateView, ApplicationDeleteView
 
 app_name = "tracker"
 
@@ -9,4 +9,5 @@ urlpatterns = [
     path("applications/", ApplicationListView.as_view(), name="application_list"),
     path("applications/new/", ApplicationCreateView.as_view(), name="application_create"),
     path("applications/<int:pk>/edit/", ApplicationUpdateView.as_view(), name="application_edit"),
+    path("applications/<int:pk>/delete/", ApplicationDeleteView.as_view(), name="application_delete"),
 ]
