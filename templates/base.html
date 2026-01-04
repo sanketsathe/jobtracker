@@ -1,58 +1,173 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}JobTracker{% endblock %}</title>
-    <style>
-        body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; background: #f7f7f9; color: #1f2933; }
-        header { background: #1f2933; color: #fff; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
-        a { color: #0b6efd; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .brand { font-weight: 700; letter-spacing: 0.5px; }
-        nav a { margin-left: 12px; color: #d1e7ff; }
-        .nav-button { margin-left: 12px; background: none; border: none; color: #d1e7ff; font: inherit; cursor: pointer; padding: 0; }
-        .nav-button:hover, nav a:hover { text-decoration: underline; }
-        main { padding: 24px; max-width: 1000px; margin: 0 auto; }
-        .card { background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        .messages { margin-bottom: 16px; padding: 0; list-style: none; }
-        .messages li { background: #e8f4ff; border: 1px solid #c8e1ff; color: #0f3d75; padding: 10px 12px; border-radius: 6px; margin-bottom: 8px; }
-        .btn { display: inline-block; padding: 10px 14px; border-radius: 6px; background: #0b6efd; color: #fff; font-weight: 600; border: none; cursor: pointer; }
-        .btn.secondary { background: #e4e7eb; color: #1f2933; }
-        form label { display: block; margin-bottom: 6px; font-weight: 600; }
-        form input, form select, form textarea { width: 100%; padding: 8px 10px; margin-bottom: 12px; border: 1px solid #cbd2d9; border-radius: 6px; font-size: 15px; }
-        table { width: 100%; border-collapse: collapse; }
-        table th, table td { padding: 10px; text-align: left; border-bottom: 1px solid #e3e8ee; }
-        table th { background: #f0f4f8; }
-        .filter-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
-    </style>
+    <link rel="stylesheet" href="{% static 'tracker/app.css' %}">
+    <script src="{% static 'tracker/app.js' %}" defer></script>
 </head>
 <body>
-    <header>
-        <div class="brand"><a href="{% url 'tracker:application_list' %}" style="color: inherit; text-decoration: none;">JobTracker</a></div>
-        <nav>
-            {% if user.is_authenticated %}
-                <a href="{% url 'tracker:application_list' %}">Dashboard</a>
-                <a href="{% url 'tracker:application_create' %}">New Application</a>
-                <form method="post" action="{% url 'logout' %}" style="display: inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="nav-button">Logout</button>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn" id="sidebarToggle" type="button" aria-label="Toggle sidebar">☰</button>
+                <a class="brand" href="{% url 'tracker:application_list' %}">JobTracker</a>
+            </div>
+            <div class="topbar-center">
+                <form class="search-form" method="get" action="{% url 'tracker:application_list' %}">
+                    <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Search company, title, location">
+                    {% if request.GET.status %}<input type="hidden" name="status" value="{{ request.GET.status }}">{% endif %}
+                    {% if request.GET.due %}<input type="hidden" name="due" value="{{ request.GET.due }}">{% endif %}
                 </form>
-            {% else %}
-                <a href="{% url 'login' %}">Login</a>
-            {% endif %}
-        </nav>
-    </header>
-    <main>
-        {% if messages %}
-            <ul class="messages">
-                {% for message in messages %}
-                    <li>{{ message }}</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
+            </div>
+            <div class="topbar-right">
+                {% if user.is_authenticated %}
+                    <a class="link-plain" href="{% url 'tracker:application_list' %}">Dashboard</a>
+                    <button type="button" class="link-plain" id="theme-toggle" aria-label="Toggle theme">🌙</button>
+                    <form method="post" action="{% url 'logout' %}">
+                        {% csrf_token %}
+                        <button type="submit" class="link-plain">Logout</button>
+                    </form>
+                {% else %}
+                    <a class="link-plain" href="{% url 'login' %}">Login</a>
+                {% endif %}
+            </div>
+        </header>
+        <div class="app-body">
+            <aside class="sidebar" id="sidebar">
+                <a class="btn primary full-width sidebar-create" href="{% url 'tracker:application_create' %}" title="New application" aria-label="New application">
+                    <span class="nav-icon">+</span>
+                    <span class="nav-text">New Application</span>
+                </a>
+                <div class="sidebar-section">
+                    <div class="sidebar-heading">Views</div>
+                    <a class="sidebar-link {% if not request.GET.due and not request.GET.status %}active{% endif %}" href="{% url 'tracker:application_list' %}" title="All">
+                        <span class="nav-icon">📋</span>
+                        <span class="nav-text">All</span>
+                        <span class="badge">{{ sidebar_counts.total|default:0 }}</span>
+                    </a>
+                    <a class="sidebar-link {% if request.GET.due == 'overdue' %}active{% endif %}" href="{% url 'tracker:application_list' %}?due=overdue" title="Overdue">
+                        <span class="nav-icon">⏰</span>
+                        <span class="nav-text">Overdue</span>
+                        <span class="badge">{{ sidebar_counts.overdue|default:0 }}</span>
+                    </a>
+                    <a class="sidebar-link {% if request.GET.due == '7' %}active{% endif %}" href="{% url 'tracker:application_list' %}?due=7" title="Due next 7 days">
+                        <span class="nav-icon">📅</span>
+                        <span class="nav-text">Due next 7 days</span>
+                        <span class="badge">{{ sidebar_counts.due7|default:0 }}</span>
+                    </a>
+                    <a class="sidebar-link {% if request.GET.due == 'none' %}active{% endif %}" href="{% url 'tracker:application_list' %}?due=none" title="No follow-up">
+                        <span class="nav-icon">➖</span>
+                        <span class="nav-text">No follow-up</span>
+                        <span class="badge">{{ sidebar_counts.none|default:0 }}</span>
+                    </a>
+                </div>
+                {% if status_links or status_choices %}
+                    <div class="sidebar-section">
+                        <div class="sidebar-heading">Status</div>
+                        {% if status_links %}
+                            {% for status in status_links %}
+                                <a class="sidebar-link {% if request.GET.status == status.code %}active{% endif %}" href="{% url 'tracker:application_list' %}?status={{ status.code }}" title="{{ status.label }}">
+                                    <span class="nav-icon">•</span>
+                                    <span class="nav-text">{{ status.label }}</span>
+                                    <span class="badge">{{ status.count }}</span>
+                                </a>
+                            {% endfor %}
+                        {% elif status_choices %}
+                            {% for code, label in status_choices %}
+                                <a class="sidebar-link {% if request.GET.status == code %}active{% endif %}" href="{% url 'tracker:application_list' %}?status={{ code }}" title="{{ label }}">
+                                    <span class="nav-icon">•</span>
+                                    <span class="nav-text">{{ label }}</span>
+                                </a>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </aside>
+            <main class="content">
+                {% if messages %}
+                    <ul class="messages">
+                        {% for message in messages %}
+                            <li>{{ message }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+        <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+        <aside id="drawer" class="drawer" aria-hidden="true"></aside>
+    </div>
+    <script>
+        (function() {
+            const STORAGE_KEY = "jobtracker.sidebar";
+            const toggle = document.getElementById("sidebarToggle");
+            const root = document.documentElement;
 
-        {% block content %}{% endblock %}
-    </main>
+            function apply(state) {
+                if (state === "collapsed") {
+                    root.classList.add("sidebar-collapsed");
+                } else {
+                    root.classList.remove("sidebar-collapsed");
+                }
+            }
+
+            const stored = localStorage.getItem(STORAGE_KEY);
+            apply(stored || "open");
+
+            if (toggle) {
+                toggle.addEventListener("click", function() {
+                    const isCollapsed = root.classList.toggle("sidebar-collapsed");
+                    localStorage.setItem(STORAGE_KEY, isCollapsed ? "collapsed" : "open");
+                });
+            }
+        })();
+    </script>
+    <script>
+        (function() {
+            const STORAGE_KEY = "jobtracker.theme";
+            const toggle = document.getElementById("theme-toggle");
+            const root = document.documentElement;
+
+            function getSystemIsDark() {
+                return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+            }
+
+            function applyTheme(theme) {
+                if (theme === "dark" || theme === "light") {
+                    root.dataset.theme = theme;
+                } else {
+                    delete root.dataset.theme;
+                }
+            }
+
+            function updateLabel() {
+                const explicitTheme = root.dataset.theme;
+                const isDark = explicitTheme ? explicitTheme === "dark" : getSystemIsDark();
+                if (toggle) {
+                    toggle.textContent = isDark ? "☀️" : "🌙";
+                    toggle.setAttribute("title", isDark ? "Light" : "Dark");
+                }
+            }
+
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored === "dark" || stored === "light") {
+                applyTheme(stored);
+            }
+            updateLabel();
+
+            if (toggle) {
+                toggle.addEventListener("click", function() {
+                    const current = root.dataset.theme || (getSystemIsDark() ? "dark" : "light");
+                    const next = current === "dark" ? "light" : "dark";
+                    applyTheme(next);
+                    localStorage.setItem(STORAGE_KEY, next);
+                    updateLabel();
+                });
+            }
+        })();
+    </script>
 </body>
 </html>

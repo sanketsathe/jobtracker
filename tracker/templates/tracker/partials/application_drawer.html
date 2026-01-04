@@ -1,0 +1,88 @@
+<div class="drawer-panel">
+    <div class="drawer-header">
+        <div class="drawer-headings">
+            {% if application.job.title %}
+                <h2 class="drawer-title">{{ application.job.title }}</h2>
+                <div class="drawer-subtitle text-subtle">
+                    <span>{{ application.job.company }}</span>
+                    {% if application.job.location %} &bull; <span>{{ application.job.location }}</span>{% endif %}
+                    {% if application.job.job_url %}
+                        &bull; <a class="link-muted" href="{{ application.job.job_url }}" target="_blank" rel="noopener">View posting</a>
+                    {% endif %}
+                </div>
+            {% else %}
+                <h2 class="drawer-title">{{ application.job.company }}</h2>
+                {% if application.job.location or application.job.job_url %}
+                    <div class="drawer-subtitle text-subtle">
+                        {% if application.job.location %}
+                            <span>{{ application.job.location }}</span>
+                        {% endif %}
+                        {% if application.job.job_url %}
+                            {% if application.job.location %} &bull; {% endif %}
+                            <a class="link-muted" href="{{ application.job.job_url }}" target="_blank" rel="noopener">View posting</a>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% endif %}
+        </div>
+        <div class="drawer-header-actions">
+            <button type="button" class="drawer-save-indicator" data-save-status aria-live="polite" aria-label="Saved" title="Saved"></button>
+            <a class="icon-btn icon-btn--ghost drawer-maximize" href="{% url 'tracker:application_edit' application.pk %}" aria-label="Open full edit" title="Open full edit">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M3 9V3h6" />
+                    <path d="M21 9V3h-6" />
+                    <path d="M3 15v6h6" />
+                    <path d="M21 15v6h-6" />
+                </svg>
+            </a>
+            <button type="button" class="icon-btn icon-btn--ghost drawer-close" data-drawer-close aria-label="Close">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M6 6l12 12" />
+                    <path d="M18 6l-12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="drawer-body" data-app-id="{{ application.pk }}" data-quick-url="{% url 'tracker:application_quick_action' application.pk %}">
+    <section class="drawer-section drawer-section--compact">
+        <div class="drawer-section-title">Quick edit</div>
+        <div class="drawer-field">
+            <label for="drawer-status">Status</label>
+            <select id="drawer-status" name="status" data-quick-status>
+                {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if value == application.status %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="drawer-field">
+            <label>Follow-up</label>
+            <details class="snooze-menu" data-followup-menu>
+                <summary class="btn btn-quiet btn-compact">Snooze presets</summary>
+                {% include "tracker/partials/followup_menu.html" %}
+            </details>
+        </div>
+        <div class="drawer-field">
+            <label for="drawer-notes">Notes</label>
+            <textarea id="drawer-notes" class="drawer-notes-input" name="notes" rows="6" data-quick-notes>{{ application.notes|default_if_none:"" }}</textarea>
+        </div>
+    </section>
+    <section class="drawer-section drawer-section--muted">
+        <div class="drawer-section-title">Timeline</div>
+        <div class="drawer-timeline">
+            <div class="drawer-timeline-row">
+                <span class="drawer-timeline-label">Applied</span>
+                <span class="drawer-timeline-value" data-drawer-applied>{{ application.applied_at|date:"M d, Y H:i"|default:"—" }}</span>
+            </div>
+            <div class="drawer-timeline-row">
+                <span class="drawer-timeline-label">Follow-up</span>
+                <span class="drawer-timeline-value followup {% if not application.follow_up_at %}followup--none{% endif %}" data-drawer-followup>{{ application.follow_up_at|date:"M d, Y H:i"|default:"—" }}</span>
+            </div>
+        </div>
+    </section>
+    <section class="drawer-section drawer-section--danger">
+        <div class="drawer-section-title">Danger zone</div>
+        <a class="btn btn-quiet danger" href="{% url 'tracker:application_delete' application.pk %}">Delete</a>
+    </section>
+    </div>
+</div>

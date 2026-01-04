@@ -3,68 +3,84 @@
 {% block title %}Applications | JobTracker{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <h1 style="margin: 0;">Applications</h1>
-        <a class="btn" href="{% url 'tracker:application_create' %}">+ New Application</a>
+<div class="page-header">
+    <div>
+        <h1>Applications</h1>
+        <p class="text-subtle">Track your applications, status, and follow-ups.</p>
     </div>
+</div>
 
-    <form method="get" class="filter-row">
-        <div style="min-width: 200px;">
-            <label for="status">Status</label>
-            <select name="status" id="status">
-                <option value="">All</option>
-                {% for value, label in status_choices %}
-                    <option value="{{ value }}" {% if value == status_filter %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div style="min-width: 180px;">
-            <label for="due">Follow-up</label>
-            <select name="due" id="due">
-                <option value="">All</option>
-                <option value="1" {% if due_filter == "1" %}selected{% endif %}>Due for follow-up</option>
-            </select>
-        </div>
-        <div>
-            <button class="btn secondary" type="submit">Filter</button>
-            <a class="btn secondary" href="{% url 'tracker:application_list' %}">Reset</a>
-        </div>
-    </form>
+<div class="table-toolbar">
+    <div class="filter-summary">
+        {% if request.GET.q or due_filter or status_filter %}
+            {% if request.GET.q %}
+                <a class="chip chip--filter" href="{% url 'tracker:application_list' %}?{% if due_filter %}due={{ due_filter }}&{% endif %}{% if status_filter %}status={{ status_filter }}{% endif %}">Search: {{ request.GET.q }} ✕</a>
+            {% endif %}
+            {% if due_filter %}
+                <a class="chip chip--filter" href="{% url 'tracker:application_list' %}?{% if request.GET.q %}q={{ request.GET.q|urlencode }}&{% endif %}{% if status_filter %}status={{ status_filter }}{% endif %}">Due: {{ due_filter }} ✕</a>
+            {% endif %}
+            {% if status_filter %}
+                <a class="chip chip--filter" href="{% url 'tracker:application_list' %}?{% if request.GET.q %}q={{ request.GET.q|urlencode }}&{% endif %}{% if due_filter %}due={{ due_filter }}{% endif %}">Status: {{ status_filter }} ✕</a>
+            {% endif %}
+        {% else %}
+            <span class="text-subtle">All applications</span>
+        {% endif %}
+    </div>
+    <div class="toolbar-group toolbar-group--right">
+        <details class="columns-toggle">
+            <summary class="btn-icon" aria-label="Columns" title="Columns">☷</summary>
+            <div class="columns-panel">
+                <label><input type="checkbox" data-col-toggle="position" checked disabled> Position</label>
+                <label><input type="checkbox" data-col-toggle="status" checked disabled> Status</label>
+                <label><input type="checkbox" data-col-toggle="followup" checked> Follow-up</label>
+                <label><input type="checkbox" data-col-toggle="location"> Location</label>
+                <label><input type="checkbox" data-col-toggle="applied"> Applied</label>
+                <label><input type="checkbox" data-col-toggle="notes"> Notes</label>
+            </div>
+        </details>
+        <a class="btn-icon" href="{% url 'tracker:application_list' %}" aria-label="Reset filters" title="Reset filters">↺</a>
+    </div>
+</div>
 
     {% if applications %}
-        <table>
+        <table class="data-table">
             <thead>
                 <tr>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>Applied</th>
-                    <th>Follow-up</th>
-                    <th>Notes</th>
-                    <th>Actions</th>
+                    <th class="col-position" data-col="position">Position</th>
+                    <th class="col-status" data-col="status">Status</th>
+                    <th class="col-followup" data-col="followup">Follow-up</th>
+                    <th class="col-location" data-col="location">Location</th>
+                    <th class="col-applied" data-col="applied">Applied</th>
+                    <th class="col-notes" data-col="notes">Notes</th>
                 </tr>
             </thead>
             <tbody>
                 {% for application in applications %}
-                    <tr>
-                        <td>
-                            <div style="font-weight: 700;">{{ application.job.title }}</div>
-                            <div>{{ application.job.company }}</div>
-                            {% if application.job.location %}<div style="color: #52606d;">{{ application.job.location }}</div>{% endif %}
-                            {% if application.job.job_url %}
-                                <div><a href="{{ application.job.job_url }}" target="_blank" rel="noopener">View posting</a></div>
-                            {% endif %}
-                        </td>
-                        <td>{{ application.get_status_display }}</td>
-                        <td>{{ application.applied_at|date:"M d, Y H:i"|default:"—" }}</td>
-                        <td>{{ application.follow_up_at|date:"M d, Y H:i"|default:"—" }}</td>
-                        <td>{{ application.notes|default:"—" }}</td>
-                        <td>
-                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                <a class="btn secondary" href="{% url 'tracker:application_edit' application.pk %}">Edit</a>
-                                <a class="btn secondary" href="{% url 'tracker:application_delete' application.pk %}">Delete</a>
+                    <tr class="app-row {% if request.GET.selected == application.pk|stringformat:'s' %}is-selected{% endif %}" data-app-id="{{ application.pk }}" data-drawer-url="{% url 'tracker:application_drawer' application.pk %}" data-quick-url="{% url 'tracker:application_quick_action' application.pk %}" tabindex="0" aria-label="Open details for {{ application.job.title|default:application.job.company }}">
+                        <td data-col="position" class="position-cell">
+                            <div class="position-title truncate">{{ application.job.title|default:application.job.company }}</div>
+                            <div class="position-subtitle truncate">
+                                {{ application.job.company }}{% if application.job.location %} · {{ application.job.location }}{% endif %}
+                                {% if application.job.job_url %}
+                                    · <a class="link-muted" href="{{ application.job.job_url }}" target="_blank" rel="noopener">View posting</a>
+                                {% endif %}
                             </div>
                         </td>
+                        <td data-col="status">
+                            <span class="badge-status" data-status-display>{{ application.get_status_display }}</span>
+                        </td>
+                        <td data-col="followup">
+                            {% if application.follow_up_at %}
+                                <span class="followup" data-followup-display>{{ application.follow_up_at|date:"M d, Y H:i" }}</span>
+                            {% else %}
+                                <span class="followup followup--none" data-followup-display>—</span>
+                            {% endif %}
+                        </td>
+                        <td data-col="location">
+                            {{ application.job.location|default:"—" }}
+                        </td>
+                        <td data-col="applied"><span data-applied-display>{{ application.applied_at|date:"M d, Y H:i"|default:"—" }}</span></td>
+                        <td data-col="notes"><span data-notes-display>{{ application.notes|default:"—" }}</span></td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -73,4 +89,59 @@
         <p>No applications yet. Start by adding one.</p>
     {% endif %}
 </div>
+<script>
+    (function() {
+        const STORAGE_KEY = "jobtracker.columns";
+        const defaultCols = ["position", "status", "followup"];
+        const requiredCols = ["position", "status"];
+
+        function loadEnabled() {
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    if (Array.isArray(parsed)) {
+                        requiredCols.forEach((col) => {
+                            if (!parsed.includes(col)) parsed.push(col);
+                        });
+                        return parsed;
+                    }
+                }
+            } catch (e) {}
+            return defaultCols;
+        }
+
+        function saveEnabled(enabled) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(enabled));
+        }
+
+        function apply(enabled) {
+            document.querySelectorAll("[data-col]").forEach((el) => {
+                const col = el.getAttribute("data-col");
+                el.style.display = enabled.includes(col) ? "" : "none";
+            });
+            document.querySelectorAll("[data-col-toggle]").forEach((checkbox) => {
+                const col = checkbox.getAttribute("data-col-toggle");
+                checkbox.checked = enabled.includes(col);
+            });
+        }
+
+        const enabledCols = loadEnabled();
+        apply(enabledCols);
+
+        document.querySelectorAll("[data-col-toggle]").forEach((checkbox) => {
+            checkbox.addEventListener("change", () => {
+                const col = checkbox.getAttribute("data-col-toggle");
+                let updated = loadEnabled();
+                if (checkbox.checked) {
+                    if (!updated.includes(col)) updated.push(col);
+                } else {
+                    updated = updated.filter((c) => c !== col);
+                }
+                saveEnabled(updated);
+                apply(updated);
+            });
+        });
+    })();
+</script>
 {% endblock %}
