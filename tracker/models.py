@@ -77,10 +77,16 @@ class Application(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):
+        skip_follow_up_auto = getattr(self, "_skip_follow_up_auto", False)
         if self.status == self.Status.APPLIED and self.applied_at is None:
             self.applied_at = timezone.now()
 
-        if self.status == self.Status.APPLIED and self.follow_up_at is None and self.applied_at is not None:
+        if (
+            self.status == self.Status.APPLIED
+            and self.follow_up_at is None
+            and self.applied_at is not None
+            and not skip_follow_up_auto
+        ):
             self.follow_up_at = self.applied_at + timezone.timedelta(days=3)
 
         super().save(*args, **kwargs)
