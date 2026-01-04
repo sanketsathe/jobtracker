@@ -4,18 +4,18 @@
 
 {% block content %}
 <div class="card">
-    <h1 style="margin-top: 0;">Edit Application</h1>
-    <p style="color: #52606d;">Update job details and application status in one place.</p>
+    <h1>Edit Application</h1>
+    <p class="text-subtle">Update job details and application status in one place.</p>
 
     <form method="post" novalidate>
         {% csrf_token %}
         {% for field in form %}
-            <div style="margin-bottom: 12px;">
+            <div class="form-field">
                 {{ field.label_tag }}
                 {{ field }}
-                {% if field.help_text %}<small style="color: #52606d;">{{ field.help_text }}</small>{% endif %}
+                {% if field.help_text %}<small class="form-hint">{{ field.help_text }}</small>{% endif %}
                 {% if field.errors %}
-                    <div style="color: #b42318;">{{ field.errors|striptags }}</div>
+                    <div class="form-error">{{ field.errors|striptags }}</div>
                 {% endif %}
             </div>
         {% endfor %}

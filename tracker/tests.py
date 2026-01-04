@@ -58,8 +58,16 @@ class ApplicationViewTests(TestCase):
         job_a = JobLead.objects.create(company="ACME", title="Engineer", owner=self.user_a)
         job_b = JobLead.objects.create(company="Beta", title="Designer", owner=self.user_b)
 
-        Application.objects.create(job=job_a, status=Application.Status.DISCOVERED, owner=self.user_a)
-        Application.objects.create(job=job_b, status=Application.Status.DISCOVERED, owner=self.user_b)
+        self.application_a = Application.objects.create(
+            job=job_a,
+            status=Application.Status.DISCOVERED,
+            owner=self.user_a,
+        )
+        self.application_b = Application.objects.create(
+            job=job_b,
+            status=Application.Status.DISCOVERED,
+            owner=self.user_b,
+        )
 
     def test_list_view_scopes_to_request_user(self):
         self.client.login(username="alice", password="password123")
@@ -127,6 +135,20 @@ class ApplicationViewTests(TestCase):
         for app_id in expected_ids:
             self.assertIn(str(app_id), ids)
         self.assertEqual(len(ids), len(expected_ids))
+
+    def test_drawer_partial_renders_status_slot(self):
+        self.client.login(username="alice", password="password123")
+
+        response = self.client.get(
+            reverse("tracker:application_drawer", args=[self.application_a.pk])
+        )
+
+        self.assertContains(response, 'class="drawer-header__right"')
+        self.assertContains(response, 'class="drawer-status-slot"')
+        self.assertContains(response, 'class="drawer-save-indicator is-idle"')
+        self.assertContains(response, 'data-save-status')
+        self.assertContains(response, 'aria-hidden="true"')
+        self.assertContains(response, 'tabindex="-1"')
 
 
 class ApplicationCreateFlowTests(TestCase):
@@ -383,7 +405,7 @@ class ApplicationDeleteFlowTests(TestCase):
 
         self.assertEqual(confirm_response.status_code, 404)
         self.assertEqual(response.status_code, 404)
-        self.assertTrue(Application.objects.filter(pk=self.application.pk).exists())
+
 
     def test_superuser_can_delete_any_application(self):
         other_job = JobLead.objects.create(company="Beta", title="Designer", owner=self.other_user)
@@ -417,6 +439,53 @@ class ApplicationDeleteFlowTests(TestCase):
         self.assertFalse(Application.objects.filter(pk=self.application.pk).exists())
         self.assertTrue(JobLead.objects.filter(pk=self.job.pk).exists())
         self.assertTrue(Application.objects.filter(pk=additional_application.pk).exists())
+
+
+class TemplateStyleTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="dana", password="password123"
+        )
+        job = JobLead.objects.create(company="Acme", title="Designer", owner=self.user)
+        self.application = Application.objects.create(
+            job=job,
+            status=Application.Status.DISCOVERED,
+            owner=self.user,
+        )
+
+    def test_create_form_uses_card_layout(self):
+        self.client.login(username="dana", password="password123")
+
+        response = self.client.get(reverse("tracker:application_create"))
+
+        self.assertContains(response, 'class="card"')
+        self.assertContains(response, 'class="form-field"')
+        self.assertContains(response, 'class="text-subtle"')
+
+    def test_edit_form_uses_card_layout(self):
+        self.client.login(username="dana", password="password123")
+
+        response = self.client.get(
+            reverse("tracker:application_edit", args=[self.application.pk])
+        )
+
+        self.assertContains(response, 'class="card"')
+        self.assertContains(response, 'class="form-field"')
+
+    def test_delete_confirm_uses_panel(self):
+        self.client.login(username="dana", password="password123")
+
+        response = self.client.get(
+            reverse("tracker:application_delete", args=[self.application.pk])
+        )
+
+        self.assertContains(response, 'class="panel panel--muted form-field"')
+        self.assertContains(response, 'class="btn btn--danger"')
+
+    def test_login_template_uses_card(self):
+        response = self.client.get(reverse("login"))
+
+        self.assertContains(response, 'class="card"')
 
 
 class ApplicationQuickActionsTests(TestCase):

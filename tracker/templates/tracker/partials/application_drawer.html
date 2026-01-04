@@ -25,8 +25,15 @@
                 {% endif %}
             {% endif %}
         </div>
-        <div class="drawer-header-actions">
-            <button type="button" class="drawer-save-indicator" data-save-status aria-live="polite" aria-label="Saved" title="Saved"></button>
+        <div class="drawer-header__right">
+            <div class="drawer-status-slot">
+                <button type="button"
+                        class="drawer-save-indicator is-idle"
+                        data-save-status
+                        aria-hidden="true"
+                        tabindex="-1"
+                        title=""></button>
+            </div>
             <a class="icon-btn icon-btn--ghost drawer-maximize" href="{% url 'tracker:application_edit' application.pk %}" aria-label="Open full edit" title="Open full edit">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M3 9V3h6" />

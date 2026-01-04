@@ -4,22 +4,22 @@
 
 {% block content %}
 <div class="card">
-    <h1 style="margin-top: 0;">Delete Application</h1>
-    <p style="color: #52606d;">You are about to delete this application. This action cannot be undone.</p>
+    <h1>Delete Application</h1>
+    <p class="text-subtle">You are about to delete this application. This action cannot be undone.</p>
 
-    <div style="padding: 12px; border: 1px solid #e3e8ee; border-radius: 6px; margin-bottom: 16px;">
-        <div style="font-weight: 700;">{{ application.job.title }}</div>
+    <div class="panel panel--muted form-field">
+        <div class="panel-title">{{ application.job.title }}</div>
         <div>{{ application.job.company }}</div>
-        <div style="color: #52606d;">Status: {{ application.get_status_display }}</div>
+        <div class="text-subtle">Status: {{ application.get_status_display }}</div>
         {% if application.notes %}
-            <div style="margin-top: 6px; color: #52606d;">Notes: {{ application.notes }}</div>
+            <div class="text-subtle panel-note">Notes: {{ application.notes }}</div>
         {% endif %}
     </div>
 
     <form method="post">
         {% csrf_token %}
-        <button type="submit" class="btn" style="background: #b42318;">Delete</button>
-        <a class="btn secondary" href="{% url 'tracker:application_list' %}">Cancel</a>
+        <button type="submit" class="btn btn--danger">Delete</button>
+        <a class="btn btn--secondary" href="{% url 'tracker:application_list' %}">Cancel</a>
     </form>
 </div>
 {% endblock %}

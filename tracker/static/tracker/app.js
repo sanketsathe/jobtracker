@@ -14,10 +14,12 @@
     let saveInFlight = false;
     let queuedSave = false;
     let pendingPayload = {};
-    let lastSavePayload = null;
+    let lastPayloadAttempted = null;
     let lastFailedPayload = null;
     let saveStatusTimeout = null;
     let saveFadeTimeout = null;
+    const savedDisplayMs = 1000;
+    const savedFadeMs = 200;
 
     function isInteractive(target) {
         if (!target) {
@@ -204,7 +206,23 @@
                         <h2 class="drawer-title">Unable to load details</h2>
                         <div class="drawer-subtitle text-subtle">${message}</div>
                     </div>
-                    <div class="drawer-header-actions">
+                    <div class="drawer-header__right">
+                        <div class="drawer-status-slot">
+                            <button type="button"
+                                    class="drawer-save-indicator is-idle"
+                                    data-save-status
+                                    aria-hidden="true"
+                                    tabindex="-1"
+                                    title=""></button>
+                        </div>
+                        <button type="button" class="icon-btn icon-btn--ghost drawer-maximize" disabled aria-hidden="true" tabindex="-1" title="">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M3 9V3h6" />
+                                <path d="M21 9V3h-6" />
+                                <path d="M3 15v6h6" />
+                                <path d="M21 15v6h-6" />
+                            </svg>
+                        </button>
                         <button type="button" class="icon-btn icon-btn--ghost drawer-close" data-drawer-close aria-label="Close">
                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                 <path d="M6 6l12 12" />
@@ -369,12 +387,7 @@
         }
     }
 
-    function setSaveStatus(state) {
-        const statusEl = drawer.querySelector("[data-save-status]");
-        if (!statusEl) {
-            return;
-        }
-        statusEl.classList.remove("is-saving", "is-error", "is-saved", "is-fading");
+    function clearSaveStatusTimers() {
         if (saveStatusTimeout) {
             window.clearTimeout(saveStatusTimeout);
             saveStatusTimeout = null;
@@ -383,35 +396,61 @@
             window.clearTimeout(saveFadeTimeout);
             saveFadeTimeout = null;
         }
+    }
+
+    function setSaveStatus(state) {
+        const statusEl = drawer.querySelector("[data-save-status]");
+        if (!statusEl) {
+            return;
+        }
+        clearSaveStatusTimers();
+        statusEl.classList.remove(
+            "is-idle",
+            "is-saving",
+            "is-error",
+            "is-saved",
+            "is-fading"
+        );
+
         if (state === "saving") {
             statusEl.innerHTML = getSaveIconMarkup("saving");
+            statusEl.classList.add("is-saving");
+            statusEl.removeAttribute("aria-hidden");
+            statusEl.setAttribute("tabindex", "0");
             statusEl.setAttribute("aria-label", "Saving…");
             statusEl.setAttribute("title", "Saving…");
-            statusEl.classList.add("is-saving");
             return;
         }
         if (state === "error") {
             statusEl.innerHTML = getSaveIconMarkup("error");
+            statusEl.classList.add("is-error");
+            statusEl.removeAttribute("aria-hidden");
+            statusEl.setAttribute("tabindex", "0");
             statusEl.setAttribute("aria-label", "Error — click to retry");
             statusEl.setAttribute("title", "Error — click to retry");
-            statusEl.classList.add("is-error");
             return;
         }
         if (state === "saved") {
             statusEl.innerHTML = getSaveIconMarkup("saved");
+            statusEl.classList.add("is-saved");
+            statusEl.removeAttribute("aria-hidden");
+            statusEl.setAttribute("tabindex", "0");
             statusEl.setAttribute("aria-label", "Saved");
             statusEl.setAttribute("title", "Saved");
-            statusEl.classList.add("is-saved");
             saveStatusTimeout = window.setTimeout(() => {
                 statusEl.classList.add("is-fading");
                 saveFadeTimeout = window.setTimeout(() => {
-                    statusEl.classList.remove("is-saved", "is-fading");
-                    statusEl.innerHTML = "";
-                }, 250);
-            }, 1000);
+                    setSaveStatus("idle");
+                }, savedFadeMs);
+            }, savedDisplayMs);
             return;
         }
         statusEl.innerHTML = "";
+        statusEl.classList.add("is-idle");
+        statusEl.setAttribute("aria-hidden", "true");
+        statusEl.setAttribute("tabindex", "-1");
+        statusEl.setAttribute("title", "");
+        statusEl.removeAttribute("aria-label");
     }
 
     function resetSaveState() {
@@ -419,18 +458,11 @@
             window.clearTimeout(saveTimer);
             saveTimer = null;
         }
-        if (saveStatusTimeout) {
-            window.clearTimeout(saveStatusTimeout);
-            saveStatusTimeout = null;
-        }
-        if (saveFadeTimeout) {
-            window.clearTimeout(saveFadeTimeout);
-            saveFadeTimeout = null;
-        }
+        clearSaveStatusTimers();
         saveInFlight = false;
         queuedSave = false;
         pendingPayload = {};
-        lastSavePayload = null;
+        lastPayloadAttempted = null;
         lastFailedPayload = null;
         setSaveStatus("idle");
     }
@@ -511,7 +543,7 @@
         pendingPayload = {};
         saveInFlight = true;
         setSaveStatus("saving");
-        lastSavePayload = payload;
+        lastPayloadAttempted = payload;
         postQuickAction(url, payload, getRowById(selectedAppId))
             .then((data) => {
                 if (
@@ -526,7 +558,7 @@
             })
             .catch(() => {
                 pendingPayload = { ...payload, ...pendingPayload };
-                lastFailedPayload = payload;
+                lastFailedPayload = lastPayloadAttempted;
                 const currentDrawer = drawer.querySelector("[data-app-id]");
                 if (currentDrawer && currentDrawer.dataset.appId === activeDrawerId) {
                     setSaveStatus("error");
@@ -593,7 +625,7 @@
             return;
         }
         if (lastFailedPayload) {
-            pendingPayload = { ...lastFailedPayload, ...pendingPayload };
+            pendingPayload = { ...lastFailedPayload };
             lastFailedPayload = null;
             setSaveStatus("saving");
             flushSave();
