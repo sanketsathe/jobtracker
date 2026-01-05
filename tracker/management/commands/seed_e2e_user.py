@@ -1,7 +1,7 @@
 import os
 
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from tracker.models import Application, JobLead
 
@@ -19,6 +19,11 @@ class Command(BaseCommand):
             username=username,
             defaults={"email": email},
         )
+
+        if not created and (user.is_staff or user.is_superuser):
+            raise CommandError(
+                f"Refusing to update existing staff/superuser account '{username}'."
+            )
 
         user.email = email
         user.is_staff = False

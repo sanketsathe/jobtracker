@@ -1,9 +1,12 @@
 from datetime import datetime, timedelta
 import json
+import os
 import re
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -890,3 +893,47 @@ class ApplicationDrawerTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.application.refresh_from_db()
         self.assertEqual(self.application.status, Application.Status.OFFER)
+
+
+class SeedE2EUserCommandTests(TestCase):
+    def test_seed_e2e_user_creates_user_and_sample_data(self):
+        with patch.dict(
+            os.environ,
+            {
+                "E2E_USERNAME": "e2e",
+                "E2E_PASSWORD": "e2e-pass",
+                "E2E_EMAIL": "e2e@example.com",
+            },
+            clear=False,
+        ):
+            call_command("seed_e2e_user")
+
+        user = get_user_model().objects.get(username="e2e")
+        self.assertTrue(user.check_password("e2e-pass"))
+        self.assertEqual(user.email, "e2e@example.com")
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(JobLead.objects.filter(owner=user, company="Example Co").exists())
+        self.assertTrue(Application.objects.filter(owner=user).exists())
+
+    def test_seed_e2e_user_refuses_staff_account(self):
+        user = get_user_model().objects.create_user(
+            username="e2e", password="keep-me"
+        )
+        user.is_staff = True
+        user.save()
+
+        with patch.dict(
+            os.environ,
+            {
+                "E2E_USERNAME": "e2e",
+                "E2E_PASSWORD": "new-pass",
+            },
+            clear=False,
+        ):
+            with self.assertRaises(CommandError):
+                call_command("seed_e2e_user")
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.check_password("keep-me"))

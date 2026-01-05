@@ -73,6 +73,16 @@ def update_evidence_log(log_path, feature, out_dir, screenshot_paths, repo_root)
         handle.write("\n" + "\n".join(lines))
 
 
+def ensure_logged_in(page, timeout=10000):
+    logout_selector = "form[action$='logout/'] button"
+    try:
+        page.wait_for_selector(logout_selector, timeout=timeout)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Login failed; logout control not found (current URL: {page.url})."
+        ) from exc
+
+
 def main():
     parser = argparse.ArgumentParser(description="Capture smoke-test screenshots with Playwright.")
     parser.add_argument("--feature", required=True, help="Feature slug used for evidence folder names.")
@@ -162,11 +172,9 @@ def main():
             page.fill("input[name='password']", password)
             page.click("button[type='submit']")
 
-            try:
-                page.wait_for_url("**/applications/**", timeout=10000)
-            except Exception:
-                pass
+            ensure_logged_in(page)
 
+            page.goto(f"{base_url}/applications/", wait_until="networkidle")
             page.wait_for_selector("h1", timeout=5000)
             dashboard_path = out_dir / "02-dashboard.png"
             page.screenshot(path=str(dashboard_path), full_page=True)
