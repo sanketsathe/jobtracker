@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
@@ -91,6 +92,14 @@ DATABASES = {
         "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
+
+if os.getenv("USE_SQLITE_FOR_TESTS") == "1" and "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "test.sqlite3",
+        }
+    }
 
 
 # Password validation

@@ -2,6 +2,7 @@
 
 PYTHON ?= $(if $(wildcard ./.venv/bin/python),./.venv/bin/python,python3)
 COMPOSE_FILE ?= docker-compose.yml
+DOCKER_OK ?= $(shell docker info >/dev/null 2>&1 && echo 1 || echo 0)
 PG_SERVICE ?= $(shell awk '\
 	/^services:/ { in_services = 1; next } \
 	in_services && match($$0, /^[[:space:]]{2}([A-Za-z0-9_-]+):[[:space:]]*$$/, m) { \
@@ -30,7 +31,12 @@ test:
 	$(PYTHON) manage.py test
 
 test-fast:
-	$(PYTHON) manage.py test tracker --keepdb
+	@if [ "$(DOCKER_OK)" = "1" ]; then \
+		$(PYTHON) manage.py test tracker --keepdb; \
+	else \
+		echo "Docker not running; falling back to SQLite (USE_SQLITE_FOR_TESTS=1)."; \
+		USE_SQLITE_FOR_TESTS=1 $(PYTHON) manage.py test tracker --keepdb; \
+	fi
 
 test-clean:
 	@if [ -z "$(PG_SERVICE)" ]; then \
