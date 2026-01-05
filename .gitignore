@@ -21,5 +21,6 @@ media/
 
 # OS / Editor
 .DS_Store
+.codex_docker_started
 .vscode/
 .idea/

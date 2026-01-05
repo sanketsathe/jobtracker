@@ -1,4 +1,4 @@
-.PHONY: check test test-fast test-clean playwright-install screenshot archive-evidence docs-check
+.PHONY: check test test-fast test-clean playwright-install screenshot archive-evidence docs-check docker-start docker-stop docker-up docker-down docker-ensure
 
 PYTHON ?= $(if $(wildcard ./.venv/bin/python),./.venv/bin/python,python3)
 COMPOSE_FILE ?= docker-compose.yml
@@ -29,7 +29,16 @@ check:
 	$(PYTHON) manage.py check
 
 test:
-	$(PYTHON) manage.py test
+	@set -e; \
+	EXIT_CODE=0; \
+	if [ "$(AUTO_DOCKER)" = "1" ]; then \
+		$(MAKE) docker-up; \
+	fi; \
+	$(PYTHON) manage.py test || EXIT_CODE=$$?; \
+	if [ "$(AUTO_DOCKER_QUIT)" = "1" ]; then \
+		$(MAKE) docker-stop || true; \
+	fi; \
+	exit $$EXIT_CODE
 
 test-fast:
 	@if [ "$(DOCKER_OK)" = "1" ]; then \
@@ -56,7 +65,20 @@ screenshot:
 		echo "Usage: FEATURE=<slug> make screenshot"; \
 		exit 1; \
 	fi
-	$(PYTHON) scripts/e2e/smoke_screenshots.py --feature "$(FEATURE)"
+	@set -e; \
+	EXIT_CODE=0; \
+	NEED_DOCKER=0; \
+	if [ -n "$(DJANGO_SETTINGS_MODULE)" ] && [ "$(DJANGO_SETTINGS_MODULE)" != "config.settings_e2e" ]; then \
+		NEED_DOCKER=1; \
+	fi; \
+	if [ "$(AUTO_DOCKER)" = "1" ] && [ "$$NEED_DOCKER" = "1" ]; then \
+		$(MAKE) docker-up; \
+	fi; \
+	$(PYTHON) scripts/e2e/smoke_screenshots.py --feature "$(FEATURE)" || EXIT_CODE=$$?; \
+	if [ "$(AUTO_DOCKER_QUIT)" = "1" ]; then \
+		$(MAKE) docker-stop || true; \
+	fi; \
+	exit $$EXIT_CODE
 
 archive-evidence:
 	$(PYTHON) scripts/archive/archive_evidence.py --days $(DAYS)
@@ -67,3 +89,18 @@ docs-check:
 	@test -f docs/PROCESS/Evidence_Standards.md
 	@test -f docs/adr/TEMPLATE.md
 	@test -f docs/features/_template/spec.md
+
+docker-start:
+	@scripts/docker/ensure_docker.sh
+
+docker-ensure: docker-start
+
+docker-up: docker-start
+	@docker compose up -d
+	@docker compose ps
+
+docker-down:
+	@docker compose down
+
+docker-stop:
+	@scripts/docker/macos_stop_docker.sh

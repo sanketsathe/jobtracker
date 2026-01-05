@@ -39,14 +39,27 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 - `make check` — Django checks
 - `make test` — full test suite
 
+## Optional: Auto-manage Docker Desktop (macOS)
+- `AUTO_DOCKER=1 make test`
+- `AUTO_DOCKER=1 AUTO_DOCKER_QUIT=1 make test`
+- `AUTO_DOCKER=1 make docker-up`
+- `AUTO_DOCKER=1 make docker-down`
+- First quit may prompt for macOS Automation permission for Terminal or your editor.
+
 ## Workflow
 - Create a feature folder: `cp -R docs/features/_template docs/features/<feature-slug>`
 - Read: `docs/PROCESS/Codex_Delivery_Protocol.md` and `docs/PROCESS/Definition_of_Done.md`
 - Evidence: `FEATURE=<feature-slug> make screenshot`
 - Screenshot runs use SQLite via `config/settings_e2e.py`.
+- To use Postgres for screenshots: `DJANGO_SETTINGS_MODULE=config.settings AUTO_DOCKER=1 FEATURE=<feature-slug> make screenshot`
 - Archive old evidence: `make archive-evidence DAYS=60`
 
 ## Make targets
+- `make docker-start`
+- `make docker-ensure`
+- `make docker-up`
+- `make docker-down`
+- `make docker-stop`
 - `make playwright-install`
 - `make screenshot FEATURE=<feature-slug>`
 - `make archive-evidence DAYS=60`

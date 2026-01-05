@@ -21,6 +21,11 @@ This protocol defines the delivery loop for AI-assisted work in this repo.
 - Update `docs/features/<feature>/evidence.md` with commands, outcomes, and links.
 - Prefer short, numbered screenshots (01-*, 02-*).
 
+## Docker automation (macOS)
+- Use `AUTO_DOCKER=1` to start Docker Desktop automatically when needed.
+- Use `AUTO_DOCKER_QUIT=1` to stop Docker Desktop at the end if this workflow started it.
+- The stack is brought down before quitting Docker Desktop.
+
 ## ADR trigger
 Create an ADR when a change:
 - Alters architecture or data flow.
