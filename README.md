@@ -43,6 +43,7 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 - `make docs-check`
 - `./.venv/bin/python manage.py check`
 - `AUTO_DOCKER=1 AUTO_DOCKER_QUIT=1 make test`
+- `CLEAN_TEST_DB=1 AUTO_DOCKER=1 AUTO_DOCKER_QUIT=1 make test`
 - `FEATURE=smoke make screenshot`
 - `DJANGO_SETTINGS_MODULE=config.settings AUTO_DOCKER=1 AUTO_DOCKER_QUIT=1 FEATURE=smoke-pg make screenshot`
 

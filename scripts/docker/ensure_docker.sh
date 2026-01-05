@@ -8,7 +8,31 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-if docker info >/dev/null 2>&1; then
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+
+docker_ready() {
+    if [ -z "$PYTHON_BIN" ]; then
+        docker info >/dev/null 2>&1
+        return $?
+    fi
+    "$PYTHON_BIN" - <<'PY'
+import subprocess
+import sys
+
+try:
+    subprocess.run(
+        ["docker", "info"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=2,
+        check=True,
+    )
+except Exception:
+    sys.exit(1)
+PY
+}
+
+if docker_ready; then
     echo "Docker is running."
     exit 0
 fi

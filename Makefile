@@ -1,4 +1,4 @@
-.PHONY: check test test-fast test-clean playwright-install screenshot archive-evidence docs-check docker-start docker-stop docker-up docker-down docker-ensure
+.PHONY: check test test-fast test-clean playwright-install screenshot archive-evidence docs-check docker-start docker-stop docker-up docker-down docker-ensure clean-test-db
 
 PYTHON ?= $(if $(wildcard ./.venv/bin/python),./.venv/bin/python,python3)
 COMPOSE_FILE ?= docker-compose.yml
@@ -34,6 +34,9 @@ test:
 	EXIT_CODE=0; \
 	if [ "$(AUTO_DOCKER)" = "1" ]; then \
 		$(MAKE) docker-up; \
+	fi; \
+	if [ "$(CLEAN_TEST_DB)" = "1" ]; then \
+		$(MAKE) clean-test-db; \
 	fi; \
 	$(PYTHON) manage.py test $(TEST_ARGS) || EXIT_CODE=$$?; \
 	if [ "$(AUTO_DOCKER_QUIT)" = "1" ]; then \
@@ -105,3 +108,6 @@ docker-down:
 
 docker-stop:
 	@scripts/docker/macos_stop_docker.sh
+
+clean-test-db:
+	@scripts/infra/clean_test_db.sh

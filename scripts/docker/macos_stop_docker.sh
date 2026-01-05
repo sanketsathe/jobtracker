@@ -9,6 +9,30 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 0
 fi
 
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+
+docker_ready() {
+    if [ -z "$PYTHON_BIN" ]; then
+        docker info >/dev/null 2>&1
+        return $?
+    fi
+    "$PYTHON_BIN" - <<'PY'
+import subprocess
+import sys
+
+try:
+    subprocess.run(
+        ["docker", "info"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=2,
+        check=True,
+    )
+except Exception:
+    sys.exit(1)
+PY
+}
+
 echo "Bringing compose stack down (best effort)..."
 (
     cd "$ROOT_DIR"
@@ -33,15 +57,15 @@ fi
 
 timeout=60
 interval=2
-elapsed=0
+start_ts=$(date +%s)
 
-while docker info >/dev/null 2>&1; do
-    if [ "$elapsed" -ge "$timeout" ]; then
+while docker_ready; do
+    now_ts=$(date +%s)
+    if [ $((now_ts - start_ts)) -ge "$timeout" ]; then
         echo "Timed out waiting for Docker Desktop to quit."
         exit 1
     fi
     sleep "$interval"
-    elapsed=$((elapsed + interval))
 done
 
 rm -f "$MARKER_FILE"
