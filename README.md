@@ -54,6 +54,16 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 - `AUTO_DOCKER=1 make docker-down`
 - First quit may prompt for macOS Automation permission for Terminal or your editor.
 
+## Docker Troubleshooting: No such container
+If `docker compose up` fails with "No such container", Docker's compose metadata is likely out of sync with the project containers.
+
+Try these in order:
+- `make docker-doctor` (non-destructive recovery for this compose project)
+- `COMPOSE_PROJECT_NAME=jobtracker2 make docker-up` (temporary workaround to use a fresh project name)
+- `make docker-reset-volumes` (destructive; deletes local Postgres data for this project)
+
+Note: `AUTO_DOCKER_QUIT=1` intentionally brings the stack down after tests, so "no containers" is normal in that case.
+
 ## Workflow
 - Create a feature folder: `cp -R docs/features/_template docs/features/<feature-slug>`
 - Read: `docs/PROCESS/Codex_Delivery_Protocol.md` and `docs/PROCESS/Definition_of_Done.md`
@@ -67,6 +77,8 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 - `make docker-ensure`
 - `make docker-up`
 - `make docker-down`
+- `make docker-doctor`
+- `make docker-reset-volumes`
 - `make docker-stop`
 - `make playwright-install`
 - `make screenshot FEATURE=<feature-slug>`

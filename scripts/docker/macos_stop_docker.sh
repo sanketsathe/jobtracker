@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MARKER_FILE="${ROOT_DIR}/.codex_docker_started"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-jobtracker}"
+COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME")
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "Docker CLI not found. Nothing to stop."
@@ -36,7 +38,7 @@ PY
 echo "Bringing compose stack down (best effort)..."
 (
     cd "$ROOT_DIR"
-    docker compose down
+    "${COMPOSE[@]}" down --remove-orphans
 ) || true
 
 if [ "${AUTO_DOCKER_QUIT:-}" != "1" ]; then

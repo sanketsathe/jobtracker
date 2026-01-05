@@ -1,7 +1,9 @@
-.PHONY: check test test-fast test-clean playwright-install screenshot archive-evidence docs-check docker-start docker-stop docker-up docker-down docker-ensure clean-test-db
+.PHONY: check test test-fast test-clean playwright-install screenshot archive-evidence docs-check docker-start docker-stop docker-up docker-down docker-doctor docker-reset-volumes docker-ensure clean-test-db
 
 PYTHON ?= $(if $(wildcard ./.venv/bin/python),./.venv/bin/python,python3)
 COMPOSE_FILE ?= docker-compose.yml
+COMPOSE_PROJECT_NAME ?= jobtracker
+COMPOSE := docker compose -p $(COMPOSE_PROJECT_NAME)
 DOCKER_OK ?= $(shell docker info >/dev/null 2>&1 && echo 1 || echo 0)
 DAYS ?= 60
 TEST_ARGS ?= --noinput
@@ -57,7 +59,7 @@ test-clean:
 		echo "Unable to detect Postgres service in $(COMPOSE_FILE). Set PG_SERVICE=<name> and retry."; \
 		exit 1; \
 	fi
-	@docker compose exec -T $(PG_SERVICE) psql -U $(PG_USER) -d $(PG_ADMIN_DB) -v ON_ERROR_STOP=1 \
+	@$(COMPOSE) exec -T $(PG_SERVICE) psql -U $(PG_USER) -d $(PG_ADMIN_DB) -v ON_ERROR_STOP=1 \
 		-c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='test_jobtracker' AND pid <> pg_backend_pid();" \
 		-c "DROP DATABASE IF EXISTS test_jobtracker;" || true
 
@@ -100,11 +102,46 @@ docker-start:
 docker-ensure: docker-start
 
 docker-up: docker-start
-	@docker compose up -d
-	@docker compose ps
+	@set -e; \
+	STATUS=0; \
+	OUTPUT="$$( $(COMPOSE) up -d --force-recreate --remove-orphans 2>&1 )" || STATUS=$$?; \
+	if [ -n "$$OUTPUT" ]; then \
+		printf "%s\n" "$$OUTPUT"; \
+	fi; \
+	if [ "$$STATUS" -ne 0 ]; then \
+		if echo "$$OUTPUT" | grep -q "No such container"; then \
+			echo "Detected compose metadata issue; running docker-doctor..."; \
+			$(MAKE) docker-doctor || true; \
+			STATUS=0; \
+			OUTPUT="$$( $(COMPOSE) up -d --force-recreate --remove-orphans 2>&1 )" || STATUS=$$?; \
+			if [ -n "$$OUTPUT" ]; then \
+				printf "%s\n" "$$OUTPUT"; \
+			fi; \
+			if [ "$$STATUS" -ne 0 ]; then \
+				echo "Restart Docker Desktop and re-run make docker-doctor"; \
+				echo "As temporary workaround you can set COMPOSE_PROJECT_NAME=jobtracker2"; \
+				exit "$$STATUS"; \
+			fi; \
+		else \
+			exit "$$STATUS"; \
+		fi; \
+	fi; \
+	$(COMPOSE) ps
 
 docker-down:
-	@docker compose down
+	@$(COMPOSE) down --remove-orphans
+
+docker-doctor: docker-start
+	@$(COMPOSE) down --remove-orphans || true
+	@docker rm -f $$(docker ps -aq --filter "label=com.docker.compose.project=$(COMPOSE_PROJECT_NAME)") 2>/dev/null || true
+	@docker network rm $$(docker network ls -q --filter "label=com.docker.compose.project=$(COMPOSE_PROJECT_NAME)") 2>/dev/null || true
+	@$(COMPOSE) up -d --force-recreate --remove-orphans
+	@$(COMPOSE) ps
+
+docker-reset-volumes: docker-start
+	@echo "WARNING: This will remove local Postgres volumes for $(COMPOSE_PROJECT_NAME)."
+	@$(COMPOSE) down -v --remove-orphans
+	@$(COMPOSE) up -d --force-recreate --remove-orphans
 
 docker-stop:
 	@scripts/docker/macos_stop_docker.sh

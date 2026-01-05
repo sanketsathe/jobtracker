@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-jobtracker}"
+COMPOSE=(docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE")
 PG_SERVICE="${PG_SERVICE:-}"
 PG_USER="${PG_USER:-jobtracker}"
 PG_ADMIN_DB="${PG_ADMIN_DB:-postgres}"
@@ -44,7 +46,7 @@ if [ -z "$PG_SERVICE" ]; then
     exit 0
 fi
 
-if ! docker compose -f "$COMPOSE_FILE" ps --services --status running | grep -q "^${PG_SERVICE}$"; then
+if ! "${COMPOSE[@]}" ps --services --status running | grep -q "^${PG_SERVICE}$"; then
     echo "Postgres service '$PG_SERVICE' not running; skipping test DB cleanup."
     exit 0
 fi
@@ -63,7 +65,7 @@ fi
 echo "Cleaning test database '${TEST_DB_NAME}' on service '${PG_SERVICE}'..."
 (
     cd "$ROOT_DIR"
-    docker compose -f "$COMPOSE_FILE" exec -T "$PG_SERVICE" psql -U "$PG_USER" -d "$PG_ADMIN_DB" -v ON_ERROR_STOP=1 \
+    "${COMPOSE[@]}" exec -T "$PG_SERVICE" psql -U "$PG_USER" -d "$PG_ADMIN_DB" -v ON_ERROR_STOP=1 \
         -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${TEST_DB_NAME}' AND pid <> pg_backend_pid();" \
         -c "DROP DATABASE IF EXISTS \"${TEST_DB_NAME}\";"
 )
