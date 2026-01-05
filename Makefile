@@ -1,8 +1,9 @@
-.PHONY: check test test-fast test-clean
+.PHONY: check test test-fast test-clean playwright-install screenshot archive-evidence docs-check
 
 PYTHON ?= $(if $(wildcard ./.venv/bin/python),./.venv/bin/python,python3)
 COMPOSE_FILE ?= docker-compose.yml
 DOCKER_OK ?= $(shell docker info >/dev/null 2>&1 && echo 1 || echo 0)
+DAYS ?= 60
 PG_SERVICE ?= $(shell awk '\
 	/^services:/ { in_services = 1; next } \
 	in_services && match($$0, /^[[:space:]]{2}([A-Za-z0-9_-]+):[[:space:]]*$$/, m) { \
@@ -46,3 +47,23 @@ test-clean:
 	@docker compose exec -T $(PG_SERVICE) psql -U $(PG_USER) -d $(PG_ADMIN_DB) -v ON_ERROR_STOP=1 \
 		-c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='test_jobtracker' AND pid <> pg_backend_pid();" \
 		-c "DROP DATABASE IF EXISTS test_jobtracker;" || true
+
+playwright-install:
+	$(PYTHON) -m playwright install chromium
+
+screenshot:
+	@if [ -z "$(FEATURE)" ]; then \
+		echo "Usage: FEATURE=<slug> make screenshot"; \
+		exit 1; \
+	fi
+	$(PYTHON) scripts/e2e/smoke_screenshots.py --feature "$(FEATURE)"
+
+archive-evidence:
+	$(PYTHON) scripts/archive/archive_evidence.py --days $(DAYS)
+
+docs-check:
+	@test -f docs/PROCESS/Definition_of_Done.md
+	@test -f docs/PROCESS/Codex_Delivery_Protocol.md
+	@test -f docs/PROCESS/Evidence_Standards.md
+	@test -f docs/adr/TEMPLATE.md
+	@test -f docs/features/_template/spec.md

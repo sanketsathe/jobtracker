@@ -25,6 +25,11 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 6) Run server  
 `python manage.py runserver` then log in at `/accounts/login/`
 
+## Developer setup
+- Dev dependencies: `pip install -r requirements-dev.txt`
+- Playwright browser: `make playwright-install`
+- Git hooks: `scripts/hooks/install_hooks.sh`
+
 ## CI
 - GitHub Actions runs Django checks, migrations, and `python manage.py test tracker` against Postgres on pushes and pull requests to `main`.
 
@@ -33,6 +38,19 @@ Simple Django 5 job application tracker with a user-facing dashboard.
 - `make test-fast` — run tracker app tests
 - `make check` — Django checks
 - `make test` — full test suite
+
+## Workflow
+- Create a feature folder: `cp -R docs/features/_template docs/features/<feature-slug>`
+- Read: `docs/PROCESS/Codex_Delivery_Protocol.md` and `docs/PROCESS/Definition_of_Done.md`
+- Evidence: `FEATURE=<feature-slug> make screenshot`
+- Screenshot runs use SQLite via `config/settings_e2e.py`.
+- Archive old evidence: `make archive-evidence DAYS=60`
+
+## Make targets
+- `make playwright-install`
+- `make screenshot FEATURE=<feature-slug>`
+- `make archive-evidence DAYS=60`
+- `make docs-check`
 
 ## Notes
 - Dashboard routes: `/` and `/applications/`; creation at `/applications/new/`.

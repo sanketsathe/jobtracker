@@ -24,5 +24,7 @@
 ## How to work (checklist)
 - Identify the target files and read existing patterns first.
 - Implement the change with minimal surface area.
+- Follow `docs/PROCESS/Codex_Delivery_Protocol.md` and `docs/PROCESS/Definition_of_Done.md`.
+- Capture UI evidence with Playwright screenshots in `docs/evidence/` and update feature evidence logs.
 - Run sanity commands: `./manage.py check`, migrations/tests if affected, and `python manage.py runserver` to smoke-test. Always run tests (`python manage.py test tracker` minimum) before concluding.
 - Summarize what changed and note any manual follow-up.

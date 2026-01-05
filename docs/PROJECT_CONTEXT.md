@@ -23,6 +23,7 @@
 - Minimal, clear diffs; stick to Django built-ins and current patterns.
 - Keep templates simple; avoid heavy frontend tooling.
 - Document key changes succinctly and run basic Django checks.
+- Delivery process docs live in `docs/PROCESS/` (DoD, protocol, evidence standards); ADRs in `docs/adr/`.
 
 ## TODO
 - Future: add Gmail-like checkbox selection and bulk actions (bulk status/delete).
