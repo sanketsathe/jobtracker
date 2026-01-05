@@ -4,6 +4,7 @@ PYTHON ?= $(if $(wildcard ./.venv/bin/python),./.venv/bin/python,python3)
 COMPOSE_FILE ?= docker-compose.yml
 DOCKER_OK ?= $(shell docker info >/dev/null 2>&1 && echo 1 || echo 0)
 DAYS ?= 60
+TEST_ARGS ?= --noinput
 PG_SERVICE ?= $(shell awk '\
 	/^services:/ { in_services = 1; next } \
 	in_services && match($$0, /^[[:space:]]{2}([A-Za-z0-9_-]+):[[:space:]]*$$/, m) { \
@@ -34,7 +35,7 @@ test:
 	if [ "$(AUTO_DOCKER)" = "1" ]; then \
 		$(MAKE) docker-up; \
 	fi; \
-	$(PYTHON) manage.py test || EXIT_CODE=$$?; \
+	$(PYTHON) manage.py test $(TEST_ARGS) || EXIT_CODE=$$?; \
 	if [ "$(AUTO_DOCKER_QUIT)" = "1" ]; then \
 		$(MAKE) docker-stop || true; \
 	fi; \

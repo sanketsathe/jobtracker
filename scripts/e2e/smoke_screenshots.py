@@ -12,9 +12,11 @@ from urllib.request import urlopen
 from playwright.sync_api import sync_playwright
 
 
-def wait_for_server(url, timeout=20):
+def wait_for_server(url, timeout=20, server_proc=None):
     start = time.time()
     while time.time() - start < timeout:
+        if server_proc and server_proc.poll() is not None:
+            return False
         try:
             with urlopen(url, timeout=2) as response:
                 if response.status < 500:
@@ -24,6 +26,21 @@ def wait_for_server(url, timeout=20):
         except Exception:
             time.sleep(0.5)
     return False
+
+
+def print_server_log_tail(log_path, lines=40):
+    if not log_path.exists():
+        return
+    try:
+        content = log_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    if not content:
+        return
+    tail = content[-lines:]
+    print("Server log tail:")
+    for line in tail:
+        print(line)
 
 
 def relative_to_root(path, root):
@@ -92,20 +109,23 @@ def main():
 
     username = env["E2E_USERNAME"]
     password = env["E2E_PASSWORD"]
+    settings_module = env["DJANGO_SETTINGS_MODULE"]
 
     subprocess.run(
-        [sys.executable, "manage.py", "migrate", "--noinput", "--settings=config.settings_e2e"],
+        [sys.executable, "manage.py", "migrate", "--noinput", f"--settings={settings_module}"],
         check=True,
         cwd=repo_root,
         env=env,
     )
     subprocess.run(
-        [sys.executable, "manage.py", "seed_e2e_user", "--settings=config.settings_e2e"],
+        [sys.executable, "manage.py", "seed_e2e_user", f"--settings={settings_module}"],
         check=True,
         cwd=repo_root,
         env=env,
     )
 
+    log_path = out_dir / "server.log"
+    server_log = log_path.open("w", encoding="utf-8")
     server_proc = subprocess.Popen(
         [
             sys.executable,
@@ -113,16 +133,20 @@ def main():
             "runserver",
             f"{host}:{port}",
             "--noreload",
-            "--settings=config.settings_e2e",
+            f"--settings={settings_module}",
         ],
         cwd=repo_root,
         env=env,
+        stdout=server_log,
+        stderr=subprocess.STDOUT,
     )
 
     screenshot_paths = []
     evidence_log = repo_root / "docs" / "features" / feature_slug / "evidence.md"
     try:
-        if not wait_for_server(login_url, timeout=25):
+        if not wait_for_server(login_url, timeout=25, server_proc=server_proc):
+            server_log.flush()
+            print_server_log_tail(log_path)
             raise RuntimeError("Django server did not become ready in time.")
 
         with sync_playwright() as playwright:
@@ -165,6 +189,7 @@ def main():
         except subprocess.TimeoutExpired:
             server_proc.kill()
             server_proc.wait(timeout=5)
+        server_log.close()
 
     print("Screenshots saved:")
     for path in screenshot_paths:
