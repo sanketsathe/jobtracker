@@ -87,4 +87,9 @@ Note: `AUTO_DOCKER_QUIT=1` intentionally brings the stack down after tests, so "
 
 ## Notes
 - Dashboard routes: `/` and `/applications/`; creation at `/applications/new/`.
+- `/applications/` hosts list, board, and follow-ups via `?view=list|board|followups`.
+- Legacy `/board/` and `/followups/` redirect into `/applications/`.
+- Profile tabs: `/profile/?tab=profile` and `/profile/?tab=settings`.
+- CSV export: `/applications/export.csv`.
+- Reminder digest: `python manage.py send_followup_reminders`.
 - Logout is POST-only per Django 5; nav uses a small form.

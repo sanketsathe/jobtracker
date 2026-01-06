@@ -2,8 +2,8 @@
 
 ## Overview
 - Django 5.1.15 project named `config` with app `tracker`.
-- Models: `JobLead` (role metadata) and `Application` (status, applied_at, follow_up_at auto-set for APPLIED).
-- Auth: Django built-in login/logout under `/accounts/`; dashboard views use `LoginRequiredMixin`.
+- Models: `JobLead` (role metadata), `Application` (status pipeline, `follow_up_on`, `next_action`, owner scoped), `FollowUp` (due items), and `UserProfile` (preferences).
+- Auth: Django built-in login/logout under `/accounts/`; views use `LoginRequiredMixin`.
 - DB: Postgres (dockerized), optional Redis service is available for future use.
 
 ## Local setup
@@ -16,7 +16,9 @@
 
 ## App behavior
 - Dashboard list at `/` or `/applications/`; create flow at `/applications/new/`.
-- Filters: status query param; `due=1` shows follow-ups due (not OFFER/REJECTED).
+- `/applications/` hosts list/board/follow-ups via `?view=`.
+- Additional pages: `/profile/` (tabs), legacy `/board/` and `/followups/` redirect.
+- Filters: `status`, `due=today|overdue|week`, `search`, and `sort`.
 - Logout is POST-only (Django 5 default); nav uses a small form.
 
 ## Coding guidelines
