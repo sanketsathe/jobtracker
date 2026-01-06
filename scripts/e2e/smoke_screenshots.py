@@ -74,13 +74,16 @@ def update_evidence_log(log_path, feature, out_dir, screenshot_paths, repo_root)
 
 
 def ensure_logged_in(page, timeout=10000):
-    logout_selector = "form[action$='logout/'] button"
-    try:
-        page.wait_for_selector(logout_selector, timeout=timeout)
-    except Exception as exc:
-        raise RuntimeError(
-            f"Login failed; logout control not found (current URL: {page.url})."
-        ) from exc
+    selectors = ["#userMenuButton", "form[action$='logout/'] button"]
+    for selector in selectors:
+        try:
+            page.wait_for_selector(selector, timeout=timeout)
+            return
+        except Exception:
+            continue
+    raise RuntimeError(
+        f"Login failed; user menu or logout control not found (current URL: {page.url})."
+    )
 
 
 def main():
