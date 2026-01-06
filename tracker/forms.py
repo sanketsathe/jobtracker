@@ -1,7 +1,7 @@
 from django import forms
 from django.db import transaction
 
-from .models import Application, JobLead
+from .models import Application, JobLead, UserProfile
 
 
 class NewApplicationForm(forms.Form):
@@ -33,7 +33,7 @@ class NewApplicationForm(forms.Form):
     status = forms.ChoiceField(
         label="Status",
         choices=Application.Status.choices,
-        initial=Application.Status.DISCOVERED,
+        initial=Application.Status.WISHLIST,
     )
     notes = forms.CharField(
         label="Notes",
@@ -63,6 +63,9 @@ class NewApplicationForm(forms.Form):
                 job=job,
                 status=self.cleaned_data["status"],
                 notes=self.cleaned_data.get("notes", ""),
+                job_url=self.cleaned_data.get("job_url", ""),
+                source=self.cleaned_data.get("source", ""),
+                location_text=self.cleaned_data.get("location", ""),
                 owner=self.user,
             )
         return application
@@ -76,33 +79,28 @@ class ApplicationUpdateForm(forms.ModelForm):
 
     class Meta:
         model = Application
-        fields = ["status", "notes", "applied_at", "follow_up_at"]
+        fields = [
+            "status",
+            "next_action",
+            "follow_up_on",
+            "notes",
+            "job_url",
+            "source",
+            "compensation_text",
+        ]
         widgets = {
             "notes": forms.Textarea(attrs={"rows": 4}),
-            "applied_at": forms.DateTimeInput(
-                attrs={"type": "datetime-local"},
-                format="%Y-%m-%dT%H:%M",
-            ),
-            "follow_up_at": forms.DateTimeInput(
-                attrs={"type": "datetime-local"},
-                format="%Y-%m-%dT%H:%M",
-            ),
+            "follow_up_on": forms.DateInput(attrs={"type": "date"}),
+            "next_action": forms.Textarea(attrs={"rows": 3}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._original_applied_at = self.instance.applied_at
         if self.instance and self.instance.job_id:
             self.fields["company"].initial = self.instance.job.company
             self.fields["title"].initial = self.instance.job.title
             self.fields["location"].initial = self.instance.job.location
             self.fields["job_url"].initial = self.instance.job.job_url
-        follow_up_field = self.fields.get("follow_up_at")
-        if follow_up_field:
-            follow_up_field.input_formats = ["%Y-%m-%dT%H:%M", *follow_up_field.input_formats]
-        applied_field = self.fields.get("applied_at")
-        if applied_field:
-            applied_field.input_formats = ["%Y-%m-%dT%H:%M", *applied_field.input_formats]
         self.order_fields(
             [
                 "company",
@@ -110,21 +108,24 @@ class ApplicationUpdateForm(forms.ModelForm):
                 "location",
                 "job_url",
                 "status",
+                "next_action",
+                "follow_up_on",
                 "notes",
-                "applied_at",
-                "follow_up_at",
+                "source",
+                "compensation_text",
             ]
         )
 
     def save(self, commit=True) -> Application:
         application = super().save(commit=False)
-        if self.cleaned_data.get("applied_at") is None and self._original_applied_at:
-            application.applied_at = self._original_applied_at
         job = application.job
         job.company = self.cleaned_data["company"]
         job.title = self.cleaned_data["title"]
         job.location = self.cleaned_data.get("location", "")
         job.job_url = self.cleaned_data.get("job_url", "")
+        application.job_url = self.cleaned_data.get("job_url", "")
+        application.source = self.cleaned_data.get("source", "")
+        application.location_text = self.cleaned_data.get("location", "")
 
         if commit:
             with transaction.atomic():
@@ -136,17 +137,57 @@ class ApplicationUpdateForm(forms.ModelForm):
 class ApplicationQuickUpdateForm(forms.ModelForm):
     class Meta:
         model = Application
-        fields = ["status", "follow_up_at", "notes"]
+        fields = ["status", "follow_up_on", "notes", "next_action"]
         widgets = {
             "notes": forms.Textarea(attrs={"rows": 4}),
-            "follow_up_at": forms.DateTimeInput(
-                attrs={"type": "datetime-local"},
-                format="%Y-%m-%dT%H:%M",
-            ),
+            "follow_up_on": forms.DateInput(attrs={"type": "date"}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        follow_up_field = self.fields.get("follow_up_at")
-        if follow_up_field:
-            follow_up_field.input_formats = ["%Y-%m-%dT%H:%M", *follow_up_field.input_formats]
+
+
+class UserProfileIdentityForm(forms.ModelForm):
+    class Meta:
+        model = UserProfile
+        fields = [
+            "full_name",
+            "headline",
+            "phone",
+            "location_city",
+            "location_country",
+            "preferred_locations",
+            "work_authorization",
+            "notice_period_days",
+            "experience_years",
+            "target_roles",
+            "target_companies",
+            "salary_expectation_min",
+            "salary_expectation_max",
+            "remote_preference",
+            "linkedin_url",
+            "github_url",
+            "portfolio_url",
+            "timezone",
+        ]
+        widgets = {
+            "preferred_locations": forms.Textarea(attrs={"rows": 2}),
+            "target_roles": forms.Textarea(attrs={"rows": 2}),
+            "target_companies": forms.Textarea(attrs={"rows": 2}),
+        }
+
+
+class UserProfileSettingsForm(forms.ModelForm):
+    class Meta:
+        model = UserProfile
+        fields = [
+            "email_reminders_enabled",
+            "daily_reminder_time",
+            "reminder_days_before",
+            "ui_density",
+            "theme_preference",
+            "reduce_motion",
+        ]
+        widgets = {
+            "daily_reminder_time": forms.TimeInput(attrs={"type": "time"}),
+        }

@@ -71,6 +71,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'tracker.context_processors.user_profile',
             ],
         },
     },
@@ -138,9 +139,13 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
+# Email (console backend for dev)
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = "noreply@jobtracker.local"
+
 # Auth redirects
 LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/applications/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 # Default primary key field type

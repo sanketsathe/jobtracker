@@ -1,0 +1,106 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en"
+      {% if user_profile %}
+        data-density="{{ user_profile.ui_density|default:'COMFORTABLE'|lower }}"
+        {% if user_profile.theme_preference != "SYSTEM" %}data-theme="{{ user_profile.theme_preference|lower }}"{% endif %}
+        {% if user_profile.reduce_motion %}data-reduce-motion="true"{% endif %}
+      {% else %}
+        data-density="comfortable"
+      {% endif %}
+>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}JobTracker{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'tracker/app.css' %}">
+    <link rel="manifest" href="{% static 'tracker/manifest.webmanifest' %}">
+    <link rel="apple-touch-icon" href="{% static 'tracker/icons/icon-192.png' %}">
+    <meta name="theme-color" content="#f4f2ee">
+    <script src="{% static 'tracker/app.js' %}" defer></script>
+</head>
+<body class="app-root">
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn" id="sidebarToggle" type="button" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M3 6h18" />
+                        <path d="M3 12h18" />
+                        <path d="M3 18h18" />
+                    </svg>
+                </button>
+                <a class="brand" href="{% url 'tracker:application_list' %}">JobTracker</a>
+            </div>
+            <div class="topbar-right">
+                <div class="user-menu-wrap">
+                    <button class="avatar-btn" id="userMenuButton" type="button" aria-haspopup="menu" aria-expanded="false">
+                        <span class="avatar" aria-hidden="true">{{ user_initials|default:user.get_username|slice:":2"|upper }}</span>
+                        <span class="sr-only">Open user menu</span>
+                    </button>
+                    <div class="user-menu" id="userMenu" role="menu" hidden>
+                        <a class="menu-item" role="menuitem" href="{% url 'tracker:profile' %}?tab=profile">Profile</a>
+                        <a class="menu-item" role="menuitem" href="{% url 'tracker:profile' %}?tab=settings">Settings</a>
+                        <form method="post" action="{% url 'logout' %}" class="menu-item">
+                            {% csrf_token %}
+                            <button type="submit" class="menu-item-btn" role="menuitem">Sign out</button>
+                        </form>
+                        <div class="menu-divider" role="separator"></div>
+                        <div class="menu-panel">
+                            <div class="menu-profile">
+                                <div class="menu-profile__name">{{ user_profile.full_name|default:user.get_username }}</div>
+                                <div class="menu-profile__headline text-subtle">{{ user_profile.headline|default:"Add a headline" }}</div>
+                                <div class="menu-profile__meta">
+                                    <span>{{ user_profile.target_roles|default:""|truncatechars:42 }}</span>
+                                    {% if user_profile.location_city or user_profile.location_country %}
+                                        <span class="menu-dot">·</span>
+                                        <span>{{ user_profile.location_city }}{% if user_profile.location_country %}, {{ user_profile.location_country }}{% endif %}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <form class="menu-quick" method="post" action="{% url 'tracker:profile_quick' %}" data-quick-profile>
+                                {% csrf_token %}
+                                <label class="toggle">
+                                    <input type="checkbox" name="email_reminders_enabled" {% if user_profile.email_reminders_enabled %}checked{% endif %}>
+                                    <span class="toggle-track" aria-hidden="true"></span>
+                                    <span class="toggle-label">Reminders</span>
+                                </label>
+                                <a class="menu-link" href="{% url 'tracker:profile' %}?tab=profile">Edit full profile</a>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <div class="app-main">
+            <aside class="sidebar" id="sidebar">
+                <a class="btn primary full-width sidebar-create" href="{% url 'tracker:application_create' %}" title="New application" aria-label="New application">
+                    <span class="nav-text">New Application</span>
+                </a>
+                <div class="sidebar-section">
+                    <div class="sidebar-heading">Navigate</div>
+                    <a class="sidebar-link {% if request.resolver_match.url_name == 'application_list' %}active{% endif %}" href="{% url 'tracker:application_list' %}">
+                        <span class="nav-text">Applications</span>
+                    </a>
+                    <a class="sidebar-link {% if request.resolver_match.url_name == 'profile' %}active{% endif %}" href="{% url 'tracker:profile' %}">
+                        <span class="nav-text">Profile</span>
+                    </a>
+                </div>
+            </aside>
+            <main class="content">
+                {% if messages %}
+                    <ul class="messages">
+                        {% for message in messages %}
+                            <li>{{ message }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+                {% block content_header %}{% endblock %}
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+    <div id="overlay-root" class="overlay-root" aria-live="polite"></div>
+    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+</body>
+</html>

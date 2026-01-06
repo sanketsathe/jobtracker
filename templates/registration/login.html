@@ -1,20 +1,19 @@
-{% extends "base.html" %}
+{% extends "layout/base_auth.html" %}
 
 {% block title %}Login | JobTracker{% endblock %}
 
 {% block content %}
-<div class="card">
-    <h1>Login</h1>
-    {% if form.errors %}
-        <p class="form-error">Please check your username and password.</p>
+<h1>Welcome back</h1>
+<p class="text-subtle">Sign in to continue tracking your applications.</p>
+{% if form.errors %}
+    <p class="form-error">Please check your username and password.</p>
+{% endif %}
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    {% if next %}
+        <input type="hidden" name="next" value="{{ next }}">
     {% endif %}
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        {% if next %}
-            <input type="hidden" name="next" value="{{ next }}">
-        {% endif %}
-        <button class="btn" type="submit">Sign in</button>
-    </form>
-</div>
+    <button class="btn" type="submit">Sign in</button>
+</form>
 {% endblock %}

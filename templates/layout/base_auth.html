@@ -1,0 +1,22 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}JobTracker{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'tracker/app.css' %}">
+    <link rel="manifest" href="{% static 'tracker/manifest.webmanifest' %}">
+    <link rel="apple-touch-icon" href="{% static 'tracker/icons/icon-192.png' %}">
+    <meta name="theme-color" content="#f4f2ee">
+    <script src="{% static 'tracker/app.js' %}" defer></script>
+</head>
+<body class="auth-body">
+    <div class="auth-shell">
+        <div class="auth-card">
+            <div class="auth-brand">JobTracker</div>
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</body>
+</html>

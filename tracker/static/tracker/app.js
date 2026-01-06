@@ -1,25 +1,53 @@
 (function() {
-    const drawer = document.getElementById("drawer");
-    const backdrop = document.getElementById("drawerBackdrop");
-    if (!drawer || !backdrop) {
-        return;
+    const overlayRoot = document.getElementById("overlay-root");
+    const toastContainer = document.getElementById("toastContainer");
+    const body = document.body;
+    const root = document.documentElement;
+    const mobileQuery = window.matchMedia("(max-width: 900px)");
+
+    const SAVE_DEBOUNCE_MS = 700;
+    const savedDisplayMs = 1200;
+    const savedFadeMs = 250;
+
+    const state = {
+        selectedId: null,
+        anchorEl: null,
+        lastFocused: null,
+        popover: null,
+        modal: null,
+        modalBackdrop: null,
+        modalRoot: null,
+        popoverRoot: null,
+        activeEditor: null,
+        activeMode: null,
+        pendingPayload: {},
+        lastFieldSnapshot: {},
+        saveTimer: null,
+        saveInFlight: false,
+        queuedSave: false,
+        lastFailedPayload: null,
+        lastUndoCandidate: null,
+        saveStatusTimeout: null,
+        saveFadeTimeout: null,
+        lastSavedAt: null,
+        saveTextTimer: null,
+        popoverRequestId: 0,
+        modalRequestId: 0,
+        focusTrapHandler: null,
+    };
+
+    function isMobile() {
+        return mobileQuery.matches;
     }
 
-    const selectedClass = "is-selected";
-    const drawerOpenClass = "open";
-    let lastFocusedRow = null;
-    let selectedAppId = null;
-    let drawerRequestId = 0;
-    let saveTimer = null;
-    let saveInFlight = false;
-    let queuedSave = false;
-    let pendingPayload = {};
-    let lastPayloadAttempted = null;
-    let lastFailedPayload = null;
-    let saveStatusTimeout = null;
-    let saveFadeTimeout = null;
-    const savedDisplayMs = 1000;
-    const savedFadeMs = 200;
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) {
+            return parts.pop().split(";").shift();
+        }
+        return "";
+    }
 
     function isInteractive(target) {
         if (!target) {
@@ -36,277 +64,389 @@
         return document.querySelector(`.app-row[data-app-id="${appId}"]`);
     }
 
-    function setSelected(pk) {
-        const selectedValue = pk ? String(pk) : null;
-        selectedAppId = selectedValue;
+    function setSelectedRow(appId) {
+        state.selectedId = appId ? String(appId) : null;
         document.querySelectorAll(".app-row").forEach((row) => {
             row.classList.toggle(
-                selectedClass,
-                selectedValue && row.dataset.appId === selectedValue
+                "is-selected",
+                state.selectedId && row.dataset.appId === state.selectedId
             );
         });
     }
 
-    function updateSelectedParam(pk) {
+    function updateSelectedParam(appId) {
         const url = new URL(window.location.href);
-        if (pk) {
-            url.searchParams.set("selected", pk);
+        if (appId) {
+            url.searchParams.set("selected", appId);
         } else {
             url.searchParams.delete("selected");
         }
         window.history.replaceState({}, "", url.toString());
     }
 
-    function getQueryWithoutSelected() {
-        const params = new URLSearchParams(window.location.search);
-        params.delete("selected");
-        const query = params.toString();
-        return query ? `?${query}` : "";
+    function ensureOverlayContainers() {
+        if (!overlayRoot) {
+            return null;
+        }
+        if (!state.popoverRoot) {
+            const popoverRoot = document.createElement("div");
+            popoverRoot.className = "popover-root";
+            const modalBackdrop = document.createElement("div");
+            modalBackdrop.className = "modal-backdrop";
+            modalBackdrop.hidden = true;
+            const modalRoot = document.createElement("div");
+            modalRoot.className = "modal-root";
+            overlayRoot.appendChild(popoverRoot);
+            overlayRoot.appendChild(modalBackdrop);
+            overlayRoot.appendChild(modalRoot);
+            state.popoverRoot = popoverRoot;
+            state.modalBackdrop = modalBackdrop;
+            state.modalRoot = modalRoot;
+            modalBackdrop.addEventListener("click", () => {
+                closeModal();
+            });
+        }
+        return {
+            popoverRoot: state.popoverRoot,
+            modalBackdrop: state.modalBackdrop,
+            modalRoot: state.modalRoot,
+        };
     }
 
-    function isDebugDrawer() {
-        return window.DEBUG_DRAWER === true;
-    }
-
-    function updateTopbarHeight() {
-        const topbar = document.querySelector(".topbar");
-        const root = document.documentElement;
-        if (!topbar || !root) {
-            if (root) {
-                root.style.setProperty("--topbar-h", "0px");
-            }
+    function showToast(message, actionLabel, onAction) {
+        if (!toastContainer) {
             return;
         }
-        const rect = topbar.getBoundingClientRect();
-        root.style.setProperty("--topbar-h", `${rect.height}px`);
+        toastContainer.innerHTML = "";
+        const toast = document.createElement("div");
+        toast.className = "toast";
+        const text = document.createElement("div");
+        text.className = "toast-message";
+        text.textContent = message;
+        toast.appendChild(text);
+
+        if (actionLabel && onAction) {
+            const actionBtn = document.createElement("button");
+            actionBtn.type = "button";
+            actionBtn.className = "btn btn-quiet btn-compact";
+            actionBtn.textContent = actionLabel;
+            actionBtn.addEventListener("click", () => {
+                onAction();
+                toast.remove();
+            });
+            toast.appendChild(actionBtn);
+        }
+
+        toastContainer.appendChild(toast);
+        window.setTimeout(() => {
+            toast.remove();
+        }, 8000);
     }
 
-    function ensureDrawerActionIcons(scopeEl) {
-        if (!scopeEl) {
+    function showUndoToast(message, undoPayload) {
+        const editor = state.activeEditor;
+        const url = editor ? editor.dataset.patchUrl : "";
+        if (!url) {
             return;
         }
-        const maximize = scopeEl.querySelector(".drawer-maximize");
-        if (maximize && !maximize.querySelector("svg")) {
-            const trimmed = maximize.innerHTML.trim();
-            if (!trimmed) {
-                maximize.innerHTML = `
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <path d="M3 9V3h6" />
-                        <path d="M21 9V3h-6" />
-                        <path d="M3 15v6h6" />
-                        <path d="M21 15v6h-6" />
-                    </svg>
-                `.trim();
-            }
-        }
-        const close = scopeEl.querySelector(".drawer-close");
-        if (close && !close.querySelector("svg")) {
-            const trimmed = close.innerHTML.trim();
-            if (!trimmed) {
-                close.innerHTML = `
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <path d="M6 6l12 12" />
-                        <path d="M18 6l-12 12" />
-                    </svg>
-                `.trim();
-            }
-        }
-    }
-
-    function getSaveIconMarkup(state) {
-        if (state === "saving") {
-            return `
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 3v4" />
-                </svg>
-            `.trim();
-        }
-        if (state === "saved") {
-            return `
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M5 12l4 4 10-10" />
-                </svg>
-            `.trim();
-        }
-        if (state === "error") {
-            return `
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M12 8v5" />
-                    <path d="M12 17h.01" />
-                    <path d="M4 20h16L12 4 4 20z" />
-                </svg>
-            `.trim();
-        }
-        return "";
-    }
-
-    function showDrawer(html) {
-        drawer.innerHTML = html;
-        drawer.setAttribute("aria-hidden", "false");
-        drawer.removeAttribute("aria-busy");
-        drawer.classList.add(drawerOpenClass);
-        backdrop.hidden = false;
-        resetSaveState();
-        ensureDrawerActionIcons(drawer);
-        updateTopbarHeight();
-        if (isDebugDrawer()) {
-            document.documentElement.classList.add("debug-drawer");
-            console.log("drawer html:", drawer.innerHTML.slice(0, 500));
-            const maximize = drawer.querySelector(".drawer-maximize");
-            console.log("maximize el:", maximize);
-            console.log(
-                "maximize svg:",
-                maximize ? Boolean(maximize.querySelector("svg")) : false
-            );
-            console.log(
-                "maximize html length:",
-                maximize ? maximize.innerHTML.trim().length : 0
-            );
-            console.log("header el:", drawer.querySelector(".drawer-header"));
-            if (maximize) {
-                const rect = maximize.getBoundingClientRect();
-                const drawerRect = drawer.getBoundingClientRect();
-                console.log("drawer rect:", drawerRect);
-                console.log("maximize rect:", rect);
-                const computed = window.getComputedStyle(maximize);
-                console.log("maximize styles:", {
-                    position: computed.position,
-                    top: computed.top,
-                    right: computed.right,
-                    zIndex: computed.zIndex,
-                    opacity: computed.opacity,
-                    visibility: computed.visibility,
-                    color: computed.color,
+        showToast(message, "Undo", () => {
+            setSaveStatus("saving");
+            sendPatch(url, undoPayload)
+                .then((data) => {
+                    applyPatchUpdate(data.application, getRowById(data.application.id));
+                    setLastSavedAt(data.saved_at);
+                    setSaveStatus("saved");
+                })
+                .catch(() => {
+                    setSaveStatus("error");
                 });
-                const svg = maximize.querySelector("svg");
-                if (svg) {
-                    const svgStyle = window.getComputedStyle(svg);
-                    console.log("maximize svg styles:", {
-                        display: svgStyle.display,
-                        opacity: svgStyle.opacity,
-                        visibility: svgStyle.visibility,
-                        stroke: svgStyle.stroke,
-                        fill: svgStyle.fill,
-                    });
-                }
-                const centerX = rect.left + rect.width / 2;
-                const centerY = rect.top + rect.height / 2;
-                const atPoint = document.elementFromPoint(centerX, centerY);
-                console.log("elementFromPoint:", atPoint);
+        });
+    }
+
+    function clearSaveStatusTimers() {
+        if (state.saveStatusTimeout) {
+            window.clearTimeout(state.saveStatusTimeout);
+            state.saveStatusTimeout = null;
+        }
+        if (state.saveFadeTimeout) {
+            window.clearTimeout(state.saveFadeTimeout);
+            state.saveFadeTimeout = null;
+        }
+    }
+
+    function formatRelativeTime(timestamp) {
+        const seconds = Math.floor((Date.now() - timestamp.getTime()) / 1000);
+        if (seconds < 10) {
+            return "Saved just now";
+        }
+        if (seconds < 60) {
+            return `Saved ${seconds}s ago`;
+        }
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) {
+            return `Saved ${minutes}m ago`;
+        }
+        const hours = Math.floor(minutes / 60);
+        return `Saved ${hours}h ago`;
+    }
+
+    function updateSaveText() {
+        const editor = state.activeEditor;
+        if (!editor) {
+            return;
+        }
+        const textEl = editor.querySelector("[data-save-text]");
+        if (!textEl) {
+            return;
+        }
+        if (!state.lastSavedAt) {
+            textEl.textContent = "Not saved yet";
+            return;
+        }
+        textEl.textContent = formatRelativeTime(state.lastSavedAt);
+    }
+
+    function startSaveTextTimer() {
+        if (state.saveTextTimer) {
+            window.clearInterval(state.saveTextTimer);
+        }
+        state.saveTextTimer = window.setInterval(updateSaveText, 30000);
+    }
+
+    function setLastSavedAt(isoString) {
+        if (!isoString) {
+            return;
+        }
+        const parsed = new Date(isoString);
+        if (Number.isNaN(parsed.getTime())) {
+            return;
+        }
+        state.lastSavedAt = parsed;
+        updateSaveText();
+        startSaveTextTimer();
+    }
+
+    function setSaveStatus(stateName) {
+        const editor = state.activeEditor;
+        if (!editor) {
+            return;
+        }
+        const statusEl = editor.querySelector("[data-save-status]");
+        const textEl = editor.querySelector("[data-save-text]");
+        if (!statusEl) {
+            return;
+        }
+        clearSaveStatusTimers();
+        statusEl.classList.remove("is-idle", "is-saving", "is-saved", "is-error", "is-fading");
+
+        if (stateName === "saving") {
+            statusEl.classList.add("is-saving");
+            statusEl.setAttribute("title", "Saving");
+            if (textEl) {
+                textEl.textContent = "Saving...";
             }
+            return;
+        }
+        if (stateName === "error") {
+            statusEl.classList.add("is-error");
+            statusEl.setAttribute("title", "Save failed. Click to retry");
+            if (textEl) {
+                textEl.textContent = "Save failed. Retry.";
+            }
+            return;
+        }
+        if (stateName === "saved") {
+            statusEl.classList.add("is-saved");
+            statusEl.setAttribute("title", "Saved");
+            state.saveStatusTimeout = window.setTimeout(() => {
+                statusEl.classList.add("is-fading");
+                state.saveFadeTimeout = window.setTimeout(() => {
+                    setSaveStatus("idle");
+                }, savedFadeMs);
+            }, savedDisplayMs);
+            updateSaveText();
+            return;
+        }
+        statusEl.classList.add("is-idle");
+        statusEl.setAttribute("title", "");
+        if (textEl) {
+            updateSaveText();
         }
     }
 
-    function showDrawerError(message) {
-        drawer.innerHTML = `
-            <div class="drawer-panel">
-                <div class="drawer-header">
-                    <div>
-                        <h2 class="drawer-title">Unable to load details</h2>
-                        <div class="drawer-subtitle text-subtle">${message}</div>
-                    </div>
-                    <div class="drawer-header__right">
-                        <div class="drawer-status-slot">
-                            <button type="button"
-                                    class="drawer-save-indicator is-idle"
-                                    data-save-status
-                                    aria-hidden="true"
-                                    tabindex="-1"
-                                    title=""></button>
-                        </div>
-                        <button type="button" class="icon-btn icon-btn--ghost drawer-maximize" disabled aria-hidden="true" tabindex="-1" title="">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path d="M3 9V3h6" />
-                                <path d="M21 9V3h-6" />
-                                <path d="M3 15v6h6" />
-                                <path d="M21 15v6h-6" />
-                            </svg>
-                        </button>
-                        <button type="button" class="icon-btn icon-btn--ghost drawer-close" data-drawer-close aria-label="Close">
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path d="M6 6l12 12" />
-                                <path d="M18 6l-12 12" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        drawer.setAttribute("aria-hidden", "false");
-        drawer.removeAttribute("aria-busy");
-        drawer.classList.add(drawerOpenClass);
-        backdrop.hidden = false;
-        ensureDrawerActionIcons(drawer);
-        updateTopbarHeight();
+    function resetSaveState() {
+        if (state.saveTimer) {
+            window.clearTimeout(state.saveTimer);
+            state.saveTimer = null;
+        }
+        clearSaveStatusTimers();
+        state.saveInFlight = false;
+        state.queuedSave = false;
+        state.pendingPayload = {};
+        state.lastFailedPayload = null;
+        state.lastUndoCandidate = null;
+        state.lastSavedAt = null;
+        if (state.saveTextTimer) {
+            window.clearInterval(state.saveTextTimer);
+            state.saveTextTimer = null;
+        }
+        setSaveStatus("idle");
+        updateSaveText();
     }
 
-    function openDrawerForRow(row) {
-        if (!row) {
+    function refreshFieldSnapshot(container) {
+        state.lastFieldSnapshot = {};
+        if (!container) {
             return;
         }
-        const pk = row.dataset.appId;
-        const drawerUrl = row.dataset.drawerUrl;
-        if (!pk || !drawerUrl) {
+        container.querySelectorAll("[data-autosave]").forEach((input) => {
+            const field = input.dataset.autosave;
+            if (!field) {
+                return;
+            }
+            state.lastFieldSnapshot[field] = input.value;
+        });
+    }
+
+    function clearFieldErrors(container, fieldName) {
+        if (!container) {
             return;
         }
+        const selector = fieldName ? `[data-field-error="${fieldName}"]` : "[data-field-error]";
+        container.querySelectorAll(selector).forEach((el) => {
+            el.textContent = "";
+        });
+    }
 
-        lastFocusedRow = row;
-        setSelected(pk);
-        updateSelectedParam(pk);
-        const requestId = ++drawerRequestId;
-        drawer.setAttribute("aria-busy", "true");
-
-        const query = getQueryWithoutSelected();
-        const cacheBuster = `cb=${Date.now()}`;
-        const requestUrl = `${drawerUrl}${query}${query ? "&" : "?"}${cacheBuster}`;
-        if (isDebugDrawer()) {
-            console.log("drawer fetch url:", requestUrl);
+    function applyFieldErrors(container, fieldErrors) {
+        if (!container) {
+            return;
         }
-        fetch(requestUrl, { credentials: "same-origin", cache: "no-store" })
+        clearFieldErrors(container);
+        if (!fieldErrors) {
+            return;
+        }
+        Object.entries(fieldErrors).forEach(([field, message]) => {
+            const target = container.querySelector(`[data-field-error="${field}"]`);
+            if (target) {
+                target.textContent = message;
+            }
+        });
+    }
+
+    function sendPatch(url, payload) {
+        const csrfToken = getCookie("csrftoken");
+        const requestInit = {
+            method: "PATCH",
+            credentials: "same-origin",
+            headers: {
+                "X-CSRFToken": csrfToken,
+                "X-Requested-With": "XMLHttpRequest",
+                "Content-Type": "application/json;charset=UTF-8",
+            },
+            body: JSON.stringify(payload),
+        };
+        return fetch(url, requestInit)
             .then((response) => {
-                if (!response.ok) {
-                    throw new Error(`Drawer load failed: ${response.status}`);
+                if (response.status === 405) {
+                    return fetch(url, { ...requestInit, method: "POST" });
                 }
-                return response.text();
+                return response;
             })
-            .then((html) => {
-                if (requestId !== drawerRequestId || selectedAppId !== String(pk)) {
-                    return;
-                }
-                showDrawer(html);
-            })
-            .catch((error) => {
-                if (requestId !== drawerRequestId || selectedAppId !== String(pk)) {
-                    return;
-                }
-                console.error(error);
-                showDrawerError("Please try again.");
+            .then((response) => {
+                return response.json().then((data) => {
+                    if (!response.ok || !data.ok) {
+                        const error = new Error(data.error || "Save failed.");
+                        error.fieldErrors = data.field_errors || {};
+                        throw error;
+                    }
+                    return data;
+                });
             });
     }
 
-    function closeDrawer() {
-        drawer.innerHTML = "";
-        drawer.setAttribute("aria-hidden", "true");
-        drawer.removeAttribute("aria-busy");
-        drawer.classList.remove(drawerOpenClass);
-        backdrop.hidden = true;
-        setSelected(null);
-        updateSelectedParam(null);
-        drawerRequestId += 1;
-        resetSaveState();
-        if (lastFocusedRow) {
-            lastFocusedRow.focus();
+    function scheduleSave() {
+        if (state.saveTimer) {
+            window.clearTimeout(state.saveTimer);
         }
+        state.saveTimer = window.setTimeout(() => {
+            state.saveTimer = null;
+            flushSave();
+        }, SAVE_DEBOUNCE_MS);
     }
 
-    function getCookie(name) {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${name}=`);
-        if (parts.length === 2) {
-            return parts.pop().split(";").shift();
+    function queueImmediateSave(payload) {
+        state.pendingPayload = { ...state.pendingPayload, ...payload };
+        if (state.saveTimer) {
+            window.clearTimeout(state.saveTimer);
+            state.saveTimer = null;
         }
-        return "";
+        flushSave();
+    }
+
+    function flushSave() {
+        if (state.saveInFlight) {
+            state.queuedSave = true;
+            return;
+        }
+        if (!Object.keys(state.pendingPayload).length) {
+            return;
+        }
+        const editor = state.activeEditor;
+        if (!editor) {
+            return;
+        }
+        const url = editor.dataset.patchUrl;
+        if (!url) {
+            return;
+        }
+        const payload = state.pendingPayload;
+        state.pendingPayload = {};
+        state.saveInFlight = true;
+        setSaveStatus("saving");
+        const activeId = editor.dataset.appId;
+        sendPatch(url, payload)
+            .then((data) => {
+                if (!editor || String(data.application.id) !== String(activeId)) {
+                    return;
+                }
+                state.lastFailedPayload = null;
+                applyPatchUpdate(data.application, getRowById(data.application.id));
+                setLastSavedAt(data.saved_at);
+                setSaveStatus("saved");
+                if (state.lastUndoCandidate) {
+                    const candidate = state.lastUndoCandidate;
+                    state.lastUndoCandidate = null;
+                    if (candidate.field === "status") {
+                        showUndoToast(
+                            `Status changed to ${data.application.status_label}.`,
+                            { status: candidate.fromValue }
+                        );
+                    }
+                    if (candidate.field === "follow_up_on" && !candidate.toValue) {
+                        showUndoToast(
+                            "Follow-up date cleared.",
+                            { follow_up_on: candidate.fromValue }
+                        );
+                    }
+                }
+            })
+            .catch((error) => {
+                state.pendingPayload = { ...payload, ...state.pendingPayload };
+                state.lastFailedPayload = payload;
+                if (editor && editor.dataset.appId === activeId) {
+                    setSaveStatus("error");
+                    applyFieldErrors(editor, error.fieldErrors);
+                    showToast("Could not save. Retry.");
+                }
+            })
+            .finally(() => {
+                state.saveInFlight = false;
+                if (state.queuedSave) {
+                    state.queuedSave = false;
+                    flushSave();
+                }
+            });
     }
 
     function updateFollowupElement(el, value) {
@@ -322,6 +462,52 @@
         }
     }
 
+    function updateFollowupBadge(row, followUpOn) {
+        if (!row) {
+            return;
+        }
+        const badge = row.querySelector("[data-followup-badge]");
+        if (badge) {
+            badge.remove();
+        }
+
+        const followupDate = followUpOn ? new Date(`${followUpOn}T00:00:00`) : null;
+        if (!followupDate || Number.isNaN(followupDate.getTime())) {
+            return;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(today);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+
+        let text = "";
+        let className = "";
+        if (followupDate < today) {
+            text = "Overdue";
+            className = "badge badge--danger";
+        } else if (followupDate.getTime() === today.getTime()) {
+            text = "Today";
+            className = "badge badge--warning";
+        } else if (followupDate <= weekEnd) {
+            text = "This week";
+            className = "badge badge--info";
+        }
+
+        if (!text) {
+            return;
+        }
+
+        const badgeEl = document.createElement("span");
+        badgeEl.className = className;
+        badgeEl.textContent = text;
+        badgeEl.setAttribute("data-followup-badge", "");
+        const followupCell = row.querySelector("[data-col='followup']");
+        if (followupCell) {
+            followupCell.appendChild(badgeEl);
+        }
+    }
+
     function updateRow(row, payload) {
         if (!row || !payload) {
             return;
@@ -329,330 +515,741 @@
         const statusEl = row.querySelector("[data-status-display]");
         if (statusEl && payload.status_label) {
             statusEl.textContent = payload.status_label;
+            const nextClass = `badge-status--${payload.status.toLowerCase()}`;
+            statusEl.className = `badge-status ${nextClass}`;
         }
-        updateFollowupElement(
-            row.querySelector("[data-followup-display]"),
-            payload.follow_up_display
-        );
-        const appliedEl = row.querySelector("[data-applied-display]");
-        if (appliedEl && payload.applied_display) {
-            appliedEl.textContent = payload.applied_display;
+        updateFollowupElement(row.querySelector("[data-followup-display]"), payload.follow_up_display);
+        updateFollowupBadge(row, payload.follow_up_on);
+        const nextActionEl = row.querySelector("[data-next-action-display]");
+        if (nextActionEl && Object.prototype.hasOwnProperty.call(payload, "next_action")) {
+            nextActionEl.textContent = payload.next_action ? payload.next_action : "—";
         }
         const notesEl = row.querySelector("[data-notes-display]");
         if (notesEl && Object.prototype.hasOwnProperty.call(payload, "notes")) {
             notesEl.textContent = payload.notes ? payload.notes : "—";
         }
+        const titleEl = row.querySelector("[data-title-display]");
+        if (titleEl && payload.title) {
+            titleEl.textContent = payload.title;
+        }
+        const companyEl = row.querySelector("[data-company-display]");
+        if (companyEl && payload.company) {
+            companyEl.textContent = payload.company;
+        }
+        const locationEl = row.querySelector("[data-location-display]");
+        if (locationEl && Object.prototype.hasOwnProperty.call(payload, "location_text")) {
+            locationEl.textContent = payload.location_text || "";
+            const wrap = row.querySelector("[data-location-wrap]");
+            if (wrap) {
+                wrap.hidden = !payload.location_text;
+            }
+        }
+        const linkEl = row.querySelector("[data-job-url-display]");
+        if (linkEl && Object.prototype.hasOwnProperty.call(payload, "job_url")) {
+            if (payload.job_url) {
+                linkEl.href = payload.job_url;
+                const wrap = row.querySelector("[data-job-url-wrap]");
+                if (wrap) {
+                    wrap.hidden = false;
+                }
+            } else {
+                const wrap = row.querySelector("[data-job-url-wrap]");
+                if (wrap) {
+                    wrap.hidden = true;
+                }
+            }
+        }
     }
 
-    function updateDrawer(payload) {
-        updateFollowupElement(
-            drawer.querySelector("[data-drawer-followup]"),
-            payload.follow_up_display
-        );
-        const appliedEl = drawer.querySelector("[data-drawer-applied]");
-        if (appliedEl && payload.applied_display) {
-            appliedEl.textContent = payload.applied_display;
+    function updateBoardCard(payload) {
+        if (!payload || !payload.id) {
+            return;
         }
-        const statusSelect = drawer.querySelector("[data-quick-status]");
-        if (statusSelect && payload.status) {
-            statusSelect.value = payload.status;
+        const card = document.querySelector(`.kanban-card[data-app-id="${payload.id}"]`);
+        if (!card) {
+            return;
         }
-        const notesInput = drawer.querySelector("[data-quick-notes]");
-        if (
-            notesInput &&
-            Object.prototype.hasOwnProperty.call(payload, "notes") &&
-            document.activeElement !== notesInput
-        ) {
-            notesInput.value = payload.notes || "";
+        const targetColumn = document.querySelector(`.kanban-column[data-status="${payload.status}"]`);
+        if (!targetColumn) {
+            return;
         }
-        const followUpInput = drawer.querySelector("[data-followup-date]");
-        if (followUpInput && Object.prototype.hasOwnProperty.call(payload, "follow_up_value")) {
-            const value = payload.follow_up_value || "";
-            followUpInput.value = value ? value.split("T")[0] : "";
+        const targetList = targetColumn.querySelector(".kanban-cards");
+        const currentColumn = card.closest(".kanban-column");
+        if (targetList && currentColumn && currentColumn !== targetColumn) {
+            const currentCount = currentColumn.querySelector("[data-column-count]");
+            const targetCount = targetColumn.querySelector("[data-column-count]");
+            if (currentCount) {
+                currentCount.textContent = `${Math.max(parseInt(currentCount.textContent || "0", 10) - 1, 0)}`;
+            }
+            if (targetCount) {
+                targetCount.textContent = `${parseInt(targetCount.textContent || "0", 10) + 1}`;
+            }
+            targetList.prepend(card);
+        }
+        const moveSelect = card.querySelector("[data-move-select]");
+        if (moveSelect) {
+            moveSelect.value = payload.status;
+            moveSelect.dataset.prevValue = payload.status;
         }
     }
 
-    function applyQuickUpdate(payload, sourceRow) {
+    function updateEditor(payload) {
+        const editor = state.activeEditor;
+        if (!editor || !payload) {
+            return;
+        }
+        if (payload.id && editor.dataset.appId !== String(payload.id)) {
+            return;
+        }
+        const titleEl = editor.querySelector("[data-app-title]");
+        const companyEl = editor.querySelector("[data-app-company]");
+        const locationEl = editor.querySelector("[data-app-location]");
+        const linkEl = editor.querySelector("[data-app-link]");
+        const linkWrap = editor.querySelector("[data-app-link-wrap]");
+        if (titleEl && payload.title) {
+            titleEl.textContent = payload.title;
+        }
+        if (companyEl && payload.company) {
+            companyEl.textContent = payload.company;
+        }
+        if (locationEl && Object.prototype.hasOwnProperty.call(payload, "location_text")) {
+            locationEl.textContent = payload.location_text || "";
+        }
+        if (linkEl && Object.prototype.hasOwnProperty.call(payload, "job_url")) {
+            if (payload.job_url) {
+                linkEl.href = payload.job_url;
+                if (linkWrap) {
+                    linkWrap.hidden = false;
+                }
+            } else if (linkWrap) {
+                linkWrap.hidden = true;
+            }
+        }
+
+        editor.querySelectorAll("[data-autosave]").forEach((input) => {
+            const field = input.dataset.autosave;
+            if (!field || !Object.prototype.hasOwnProperty.call(payload, field)) {
+                return;
+            }
+            if (document.activeElement === input) {
+                return;
+            }
+            input.value = payload[field] || "";
+        });
+        refreshFieldSnapshot(editor);
+    }
+
+    function applyPatchUpdate(payload, sourceRow) {
         const targetRow = sourceRow || getRowById(payload.id);
         if (targetRow) {
             updateRow(targetRow, payload);
         }
-        const drawerBody = drawer.querySelector("[data-app-id]");
-        if (
-            drawerBody &&
-            payload.id &&
-            drawerBody.dataset.appId === String(payload.id)
-        ) {
-            updateDrawer(payload);
-        }
+        updateEditor(payload);
+        updateBoardCard(payload);
     }
 
-    function clearSaveStatusTimers() {
-        if (saveStatusTimeout) {
-            window.clearTimeout(saveStatusTimeout);
-            saveStatusTimeout = null;
-        }
-        if (saveFadeTimeout) {
-            window.clearTimeout(saveFadeTimeout);
-            saveFadeTimeout = null;
-        }
-    }
-
-    function setSaveStatus(state) {
-        const statusEl = drawer.querySelector("[data-save-status]");
-        if (!statusEl) {
-            return;
-        }
-        clearSaveStatusTimers();
-        statusEl.classList.remove(
-            "is-idle",
-            "is-saving",
-            "is-error",
-            "is-saved",
-            "is-fading"
-        );
-
-        if (state === "saving") {
-            statusEl.innerHTML = getSaveIconMarkup("saving");
-            statusEl.classList.add("is-saving");
-            statusEl.removeAttribute("aria-hidden");
-            statusEl.setAttribute("tabindex", "0");
-            statusEl.setAttribute("aria-label", "Saving…");
-            statusEl.setAttribute("title", "Saving…");
-            return;
-        }
-        if (state === "error") {
-            statusEl.innerHTML = getSaveIconMarkup("error");
-            statusEl.classList.add("is-error");
-            statusEl.removeAttribute("aria-hidden");
-            statusEl.setAttribute("tabindex", "0");
-            statusEl.setAttribute("aria-label", "Error — click to retry");
-            statusEl.setAttribute("title", "Error — click to retry");
-            return;
-        }
-        if (state === "saved") {
-            statusEl.innerHTML = getSaveIconMarkup("saved");
-            statusEl.classList.add("is-saved");
-            statusEl.removeAttribute("aria-hidden");
-            statusEl.setAttribute("tabindex", "0");
-            statusEl.setAttribute("aria-label", "Saved");
-            statusEl.setAttribute("title", "Saved");
-            saveStatusTimeout = window.setTimeout(() => {
-                statusEl.classList.add("is-fading");
-                saveFadeTimeout = window.setTimeout(() => {
-                    setSaveStatus("idle");
-                }, savedFadeMs);
-            }, savedDisplayMs);
-            return;
-        }
-        statusEl.innerHTML = "";
-        statusEl.classList.add("is-idle");
-        statusEl.setAttribute("aria-hidden", "true");
-        statusEl.setAttribute("tabindex", "-1");
-        statusEl.setAttribute("title", "");
-        statusEl.removeAttribute("aria-label");
-    }
-
-    function resetSaveState() {
-        if (saveTimer) {
-            window.clearTimeout(saveTimer);
-            saveTimer = null;
-        }
-        clearSaveStatusTimers();
-        saveInFlight = false;
-        queuedSave = false;
-        pendingPayload = {};
-        lastPayloadAttempted = null;
-        lastFailedPayload = null;
-        setSaveStatus("idle");
-    }
-
-    function postQuickAction(url, payload, sourceRow, menu, options = {}) {
+    function sendFollowupUpdate(followupId, payload) {
         const csrfToken = getCookie("csrftoken");
-        const isJson = options.json !== false;
-        return fetch(url, {
-            method: "POST",
+        const requestInit = {
+            method: "PATCH",
             credentials: "same-origin",
             headers: {
                 "X-CSRFToken": csrfToken,
                 "X-Requested-With": "XMLHttpRequest",
-                "Content-Type": isJson
-                    ? "application/json;charset=UTF-8"
-                    : "application/x-www-form-urlencoded;charset=UTF-8",
+                "Content-Type": "application/json;charset=UTF-8",
             },
-            body: isJson ? JSON.stringify(payload) : new URLSearchParams(payload),
-        })
+            body: JSON.stringify(payload),
+        };
+        return fetch(`/followups/${followupId}/`, requestInit)
+            .then((response) => {
+                if (response.status === 405) {
+                    return fetch(`/followups/${followupId}/`, { ...requestInit, method: "POST" });
+                }
+                return response;
+            })
+            .then((response) => {
+                return response.json().then((data) => {
+                    if (!response.ok || !data.ok) {
+                        throw new Error(data.error || "Follow-up update failed.");
+                    }
+                    return data;
+                });
+            });
+    }
+
+    function renderFollowupItem(followup) {
+        const item = document.createElement("div");
+        item.className = "followup-item";
+        item.dataset.followupId = followup.id;
+        item.innerHTML = `
+            <label class="followup-check">
+                <input type="checkbox" data-followup-complete ${followup.is_completed ? "checked" : ""}>
+                <span class="sr-only">Mark complete</span>
+            </label>
+            <input type="date" value="${followup.due_on}" data-followup-due>
+            <input type="text" value="${followup.note || ""}" placeholder="Note" data-followup-note>
+        `.trim();
+        return item;
+    }
+
+    function setActiveEditor(container, mode) {
+        state.activeEditor = container;
+        state.activeMode = mode;
+        resetSaveState();
+        refreshFieldSnapshot(container);
+    }
+
+    function closePopover(clearSelection) {
+        if (!state.popoverRoot) {
+            return;
+        }
+        state.popoverRoot.innerHTML = "";
+        state.popover = null;
+        state.anchorEl = null;
+        if (state.activeMode === "popover") {
+            state.activeEditor = null;
+            state.activeMode = null;
+        }
+        if (clearSelection) {
+            setSelectedRow(null);
+            updateSelectedParam(null);
+        }
+        if (state.lastFocused) {
+            state.lastFocused.focus();
+        }
+    }
+
+    function releaseFocusTrap() {
+        if (state.modal && state.focusTrapHandler) {
+            state.modal.removeEventListener("keydown", state.focusTrapHandler);
+            state.focusTrapHandler = null;
+        }
+    }
+
+    function closeModal() {
+        if (!state.modalRoot || !state.modalBackdrop) {
+            return;
+        }
+        body.classList.remove("modal-open");
+        state.modalRoot.innerHTML = "";
+        state.modalRoot.classList.remove("is-open");
+        state.modalBackdrop.hidden = true;
+        state.modal = null;
+        releaseFocusTrap();
+        if (state.activeMode === "modal") {
+            state.activeEditor = null;
+            state.activeMode = null;
+            setSelectedRow(null);
+            updateSelectedParam(null);
+        }
+        if (state.lastFocused) {
+            state.lastFocused.focus();
+        }
+    }
+
+    function showPopoverSkeleton(container) {
+        container.innerHTML = `
+            <div class="popover-card popover-skeleton">
+                <div class="skeleton skeleton-title"></div>
+                <div class="skeleton skeleton-subtitle"></div>
+                <div class="skeleton skeleton-block"></div>
+                <div class="skeleton skeleton-block"></div>
+            </div>
+        `.trim();
+    }
+
+    function showModalSkeleton(container) {
+        container.innerHTML = `
+            <div class="modal-panel modal-skeleton">
+                <div class="modal-header">
+                    <div class="modal-headings">
+                        <div class="skeleton skeleton-title"></div>
+                        <div class="skeleton skeleton-subtitle"></div>
+                    </div>
+                    <div class="modal-actions">
+                        <div class="skeleton skeleton-icon"></div>
+                        <div class="skeleton skeleton-icon"></div>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div class="skeleton skeleton-block"></div>
+                    <div class="skeleton skeleton-block"></div>
+                </div>
+            </div>
+        `.trim();
+    }
+
+    function positionPopover(anchorEl, popoverEl) {
+        if (!anchorEl || !popoverEl) {
+            return;
+        }
+        const padding = 12;
+        const rect = anchorEl.getBoundingClientRect();
+        const popRect = popoverEl.getBoundingClientRect();
+        let top = rect.bottom + 8;
+        if (top + popRect.height > window.innerHeight - padding) {
+            top = rect.top - popRect.height - 8;
+        }
+        top = Math.max(padding, Math.min(top, window.innerHeight - popRect.height - padding));
+
+        let left = rect.left;
+        if (left + popRect.width > window.innerWidth - padding) {
+            left = window.innerWidth - popRect.width - padding;
+        }
+        left = Math.max(padding, left);
+        popoverEl.style.top = `${top}px`;
+        popoverEl.style.left = `${left}px`;
+    }
+
+    function openPopover(row, quickUrl, appId) {
+        const overlay = ensureOverlayContainers();
+        if (!overlay) {
+            return;
+        }
+        const requestId = ++state.popoverRequestId;
+        overlay.popoverRoot.innerHTML = "";
+        const popover = document.createElement("div");
+        popover.className = "popover";
+        popover.setAttribute("aria-busy", "true");
+        overlay.popoverRoot.appendChild(popover);
+        state.popover = popover;
+        state.anchorEl = row;
+        showPopoverSkeleton(popover);
+        positionPopover(row, popover);
+
+        fetch(`${quickUrl}?cb=${Date.now()}`, { credentials: "same-origin", cache: "no-store" })
             .then((response) => {
                 if (!response.ok) {
-                    return response.json().then((data) => {
-                        throw new Error(data.error || "Quick update failed.");
-                    });
+                    throw new Error(`Quick view failed: ${response.status}`);
                 }
-                return response.json();
+                return response.text();
             })
-            .then((data) => {
-                applyQuickUpdate(data, sourceRow);
-                if (menu) {
-                    menu.open = false;
-                }
-                return data;
-            })
-            .catch((error) => {
-                console.error(error);
-                throw error;
-            });
-    }
-
-    function scheduleSave() {
-        if (saveTimer) {
-            window.clearTimeout(saveTimer);
-        }
-        saveTimer = window.setTimeout(() => {
-            saveTimer = null;
-            flushSave();
-        }, 600);
-    }
-
-    function queueImmediateSave(payload, menu) {
-        pendingPayload = { ...pendingPayload, ...payload };
-        if (menu) {
-            menu.open = false;
-        }
-        if (saveTimer) {
-            window.clearTimeout(saveTimer);
-            saveTimer = null;
-        }
-        flushSave();
-    }
-
-    function flushSave() {
-        if (saveInFlight) {
-            queuedSave = true;
-            return;
-        }
-        if (!Object.keys(pendingPayload).length) {
-            return;
-        }
-        const drawerBody = drawer.querySelector("[data-app-id]");
-        const activeDrawerId = drawerBody ? drawerBody.dataset.appId : null;
-        const url = drawerBody ? drawerBody.dataset.quickUrl : "";
-        if (!url) {
-            return;
-        }
-        const payload = pendingPayload;
-        pendingPayload = {};
-        saveInFlight = true;
-        setSaveStatus("saving");
-        lastPayloadAttempted = payload;
-        postQuickAction(url, payload, getRowById(selectedAppId))
-            .then((data) => {
-                if (
-                    !drawerBody ||
-                    !data ||
-                    String(data.id) !== activeDrawerId
-                ) {
+            .then((html) => {
+                if (requestId !== state.popoverRequestId) {
                     return;
                 }
-                lastFailedPayload = null;
-                setSaveStatus("saved");
+                popover.innerHTML = html;
+                popover.removeAttribute("aria-busy");
+                const editor = popover.querySelector("[data-app-id]");
+                if (editor) {
+                    setActiveEditor(editor, "popover");
+                }
+                positionPopover(row, popover);
             })
             .catch(() => {
-                pendingPayload = { ...payload, ...pendingPayload };
-                lastFailedPayload = lastPayloadAttempted;
-                const currentDrawer = drawer.querySelector("[data-app-id]");
-                if (currentDrawer && currentDrawer.dataset.appId === activeDrawerId) {
-                    setSaveStatus("error");
+                if (requestId !== state.popoverRequestId) {
+                    return;
+                }
+                popover.innerHTML = `
+                    <div class="popover-card">
+                        <div class="popover-title">Unable to load</div>
+                        <div class="text-subtle">Please try again.</div>
+                    </div>
+                `.trim();
+                popover.removeAttribute("aria-busy");
+            });
+    }
+
+    function trapFocus(modalEl) {
+        if (!modalEl) {
+            return;
+        }
+        const focusables = modalEl.querySelectorAll(
+            "a, button, input, select, textarea, [tabindex]:not([tabindex='-1'])"
+        );
+        if (!focusables.length) {
+            return;
+        }
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        state.focusTrapHandler = (event) => {
+            if (event.key !== "Tab") {
+                return;
+            }
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        modalEl.addEventListener("keydown", state.focusTrapHandler);
+        first.focus();
+    }
+
+    function openModal(url, appId, mode) {
+        const overlay = ensureOverlayContainers();
+        if (!overlay) {
+            return;
+        }
+        body.classList.add("modal-open");
+        const requestId = ++state.modalRequestId;
+        overlay.modalRoot.classList.add("is-open");
+        overlay.modalBackdrop.hidden = false;
+        overlay.modalRoot.dataset.mode = mode || "full";
+        showModalSkeleton(overlay.modalRoot);
+
+        fetch(`${url}?cb=${Date.now()}`, { credentials: "same-origin", cache: "no-store" })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`Editor load failed: ${response.status}`);
+                }
+                return response.text();
+            })
+            .then((html) => {
+                if (requestId !== state.modalRequestId) {
+                    return;
+                }
+                if (mode === "quick") {
+                    overlay.modalRoot.innerHTML = `
+                        <div class="modal-sheet modal-sheet--quick">
+                            ${html}
+                        </div>
+                    `.trim();
+                } else {
+                    overlay.modalRoot.innerHTML = `
+                        <div class="modal-sheet">
+                            ${html}
+                        </div>
+                    `.trim();
+                }
+                state.modal = overlay.modalRoot.querySelector(".modal-sheet");
+                const editor = overlay.modalRoot.querySelector("[data-app-id]");
+                if (editor) {
+                    setActiveEditor(editor, "modal");
+                }
+                if (mode !== "quick") {
+                    trapFocus(overlay.modalRoot);
                 }
             })
-            .finally(() => {
-                saveInFlight = false;
-                if (queuedSave) {
-                    queuedSave = false;
-                    flushSave();
+            .catch(() => {
+                if (requestId !== state.modalRequestId) {
+                    return;
                 }
+                overlay.modalRoot.innerHTML = `
+                    <div class="modal-sheet">
+                        <div class="modal-panel">
+                            <div class="modal-header">
+                                <div class="modal-title">Unable to load editor</div>
+                            </div>
+                            <div class="modal-body text-subtle">Please try again.</div>
+                        </div>
+                    </div>
+                `.trim();
             });
+    }
+
+    function openQuickForRow(row) {
+        if (!row) {
+            return;
+        }
+        const appId = row.dataset.appId;
+        const quickUrl = row.dataset.quickUrl;
+        if (!appId || !quickUrl) {
+            return;
+        }
+        if (state.activeMode === "modal") {
+            closeModal();
+        }
+        if (state.activeMode === "popover") {
+            closePopover(false);
+        }
+        state.lastFocused = row;
+        setSelectedRow(appId);
+        updateSelectedParam(appId);
+        if (isMobile()) {
+            openModal(quickUrl, appId, "quick");
+            return;
+        }
+        openPopover(row, quickUrl, appId);
+    }
+
+    function openFullEditorFromActive() {
+        const editor = state.activeEditor;
+        if (!editor) {
+            return;
+        }
+        const editUrl = editor.dataset.editUrl;
+        const appId = editor.dataset.appId;
+        if (!editUrl || !appId) {
+            return;
+        }
+        closePopover(false);
+        openModal(editUrl, appId, "full");
+    }
+
+    function updateTopbarHeight() {
+        const topbar = document.querySelector(".topbar");
+        if (!topbar) {
+            return;
+        }
+        const rect = topbar.getBoundingClientRect();
+        root.style.setProperty("--topbar-h", `${rect.height}px`);
+    }
+
+    function initSidebarToggle() {
+        const STORAGE_KEY = "jobtracker.sidebar";
+        const toggle = document.getElementById("sidebarToggle");
+        if (!toggle) {
+            return;
+        }
+
+        function apply(stateValue) {
+            if (stateValue === "collapsed") {
+                root.classList.add("sidebar-collapsed");
+            } else {
+                root.classList.remove("sidebar-collapsed");
+            }
+        }
+
+        const stored = localStorage.getItem(STORAGE_KEY);
+        apply(stored || "open");
+
+        toggle.addEventListener("click", () => {
+            if (isMobile()) {
+                body.classList.toggle("sidebar-open");
+                toggle.setAttribute("aria-expanded", body.classList.contains("sidebar-open"));
+                return;
+            }
+            const isCollapsed = root.classList.toggle("sidebar-collapsed");
+            localStorage.setItem(STORAGE_KEY, isCollapsed ? "collapsed" : "open");
+        });
+
+        mobileQuery.addEventListener("change", () => {
+            body.classList.remove("sidebar-open");
+            toggle.setAttribute("aria-expanded", "false");
+        });
+    }
+
+    function initUserMenu() {
+        const menuButton = document.getElementById("userMenuButton");
+        const menu = document.getElementById("userMenu");
+        if (!menuButton || !menu) {
+            return;
+        }
+        function closeMenu() {
+            menu.hidden = true;
+            menuButton.setAttribute("aria-expanded", "false");
+        }
+        function toggleMenu() {
+            const isOpen = !menu.hidden;
+            menu.hidden = isOpen;
+            menuButton.setAttribute("aria-expanded", String(!isOpen));
+        }
+        menuButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            toggleMenu();
+        });
+        document.addEventListener("click", (event) => {
+            if (!menu.contains(event.target) && !menuButton.contains(event.target)) {
+                closeMenu();
+            }
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+                closeMenu();
+            }
+        });
+    }
+
+    function initKanban() {
+        const kanban = document.querySelector("[data-kanban]");
+        if (!kanban) {
+            return;
+        }
+        let draggedCard = null;
+        let draggedFromColumn = null;
+        let draggedFromList = null;
+
+        function updateColumnCount(column, delta) {
+            if (!column) {
+                return;
+            }
+            const badge = column.querySelector("[data-column-count]");
+            if (!badge) {
+                return;
+            }
+            const current = parseInt(badge.textContent || "0", 10);
+            const next = Math.max(current + delta, 0);
+            badge.textContent = `${next}`;
+        }
+
+        kanban.addEventListener("dragstart", (event) => {
+            const card = event.target.closest(".kanban-card");
+            if (!card) {
+                return;
+            }
+            draggedCard = card;
+            draggedFromColumn = card.closest(".kanban-column");
+            draggedFromList = card.closest(".kanban-cards");
+            card.classList.add("is-dragging");
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", card.dataset.appId || "");
+        });
+
+        kanban.addEventListener("dragend", (event) => {
+            const card = event.target.closest(".kanban-card");
+            if (card) {
+                card.classList.remove("is-dragging");
+            }
+            draggedCard = null;
+            draggedFromColumn = null;
+            draggedFromList = null;
+        });
+
+        kanban.addEventListener("dragover", (event) => {
+            const column = event.target.closest(".kanban-cards");
+            if (column) {
+                event.preventDefault();
+            }
+        });
+
+        kanban.addEventListener("drop", (event) => {
+            const column = event.target.closest(".kanban-column");
+            const targetList = event.target.closest(".kanban-cards");
+            if (!column || !targetList || !draggedCard) {
+                return;
+            }
+            event.preventDefault();
+            const newStatus = column.dataset.status;
+            const originalList = draggedFromList;
+            const originalColumn = draggedFromColumn;
+            targetList.prepend(draggedCard);
+            updateColumnCount(originalColumn, -1);
+            updateColumnCount(column, 1);
+            sendPatch(draggedCard.dataset.patchUrl, { status: newStatus })
+                .then((data) => {
+                    applyPatchUpdate(data.application, getRowById(data.application.id));
+                    setLastSavedAt(data.saved_at);
+                    const moveSelect = draggedCard.querySelector("[data-move-select]");
+                    if (moveSelect) {
+                        moveSelect.value = data.application.status;
+                        moveSelect.dataset.prevValue = data.application.status;
+                    }
+                })
+                .catch(() => {
+                    if (originalList) {
+                        originalList.prepend(draggedCard);
+                        updateColumnCount(originalColumn, 1);
+                        updateColumnCount(column, -1);
+                    }
+                    showToast("Move failed. Status reverted.");
+                });
+        });
+
+        kanban.addEventListener("change", (event) => {
+            const moveSelect = event.target.closest("[data-move-select]");
+            if (!moveSelect) {
+                return;
+            }
+            const card = moveSelect.closest(".kanban-card");
+            const newStatus = moveSelect.value;
+            const previousStatus = moveSelect.dataset.prevValue || newStatus;
+            const originalColumn = card.closest(".kanban-column");
+            const targetColumn = kanban.querySelector(`.kanban-column[data-status="${newStatus}"]`);
+            const targetList = targetColumn ? targetColumn.querySelector(".kanban-cards") : null;
+
+            if (targetList && targetList !== card.parentElement) {
+                targetList.prepend(card);
+                updateColumnCount(originalColumn, -1);
+                updateColumnCount(targetColumn, 1);
+            }
+            sendPatch(card.dataset.patchUrl, { status: newStatus })
+                .then((data) => {
+                    applyPatchUpdate(data.application, getRowById(data.application.id));
+                    setLastSavedAt(data.saved_at);
+                    moveSelect.dataset.prevValue = data.application.status;
+                })
+                .catch(() => {
+                    moveSelect.value = previousStatus;
+                    if (originalColumn && originalColumn !== card.closest(".kanban-column")) {
+                        const originalList = originalColumn.querySelector(".kanban-cards");
+                        if (originalList) {
+                            originalList.prepend(card);
+                            updateColumnCount(originalColumn, 1);
+                            updateColumnCount(targetColumn, -1);
+                        }
+                    }
+                    showToast("Move failed. Try again.");
+                });
+        });
     }
 
     document.addEventListener("click", (event) => {
-        const closeTarget = event.target.closest("[data-drawer-close]");
-        if (closeTarget) {
-            closeDrawer();
+        const openEditor = event.target.closest("[data-open-editor]");
+        if (openEditor) {
+            event.preventDefault();
+            openFullEditorFromActive();
             return;
         }
 
-        const presetButton = event.target.closest("[data-followup-preset]");
-        if (presetButton) {
-            setSaveStatus("saving");
-            queueImmediateSave(
-                { followup: { preset: presetButton.dataset.followupPreset } },
-                presetButton.closest("details")
-            );
+        const closeBtn = event.target.closest("[data-popover-close], [data-modal-close]");
+        if (closeBtn) {
+            if (state.activeMode === "modal") {
+                closeModal();
+            } else {
+                closePopover(true);
+            }
             return;
         }
 
         const clearButton = event.target.closest("[data-followup-clear]");
         if (clearButton) {
-            setSaveStatus("saving");
-            queueImmediateSave(
-                { followup: { preset: "clear" } },
-                clearButton.closest("details")
-            );
-            return;
-        }
-
-        const dateButton = event.target.closest("[data-followup-date-submit]");
-        if (dateButton) {
-            const panel = dateButton.closest(".snooze-panel");
-            const input = panel ? panel.querySelector("[data-followup-date]") : null;
-            const value = input ? input.value : "";
-            if (!value) {
-                return;
+            const editor = state.activeEditor;
+            const input = editor ? editor.querySelector("[data-autosave='follow_up_on']") : null;
+            const previousValue = input ? input.value : "";
+            if (input) {
+                input.value = "";
+                state.lastFieldSnapshot.follow_up_on = "";
+                clearFieldErrors(editor, "follow_up_on");
             }
+            state.lastUndoCandidate = {
+                field: "follow_up_on",
+                fromValue: previousValue,
+                toValue: "",
+            };
             setSaveStatus("saving");
-            queueImmediateSave(
-                { followup: { preset: "date", date: value } },
-                dateButton.closest("details")
-            );
+            queueImmediateSave({ follow_up_on: "" });
+            return;
         }
-    });
 
-    document.addEventListener("click", (event) => {
         const saveButton = event.target.closest("[data-save-status]");
-        if (!saveButton) {
+        if (saveButton && saveButton.classList.contains("is-error")) {
+            if (state.lastFailedPayload) {
+                state.pendingPayload = { ...state.lastFailedPayload };
+                state.lastFailedPayload = null;
+                setSaveStatus("saving");
+                flushSave();
+            }
             return;
         }
-        if (!saveButton.classList.contains("is-error")) {
+
+        if (isInteractive(event.target)) {
             return;
         }
-        if (lastFailedPayload) {
-            pendingPayload = { ...lastFailedPayload };
-            lastFailedPayload = null;
-            setSaveStatus("saving");
-            flushSave();
+        const row = event.target.closest(".app-row");
+        if (row) {
+            openQuickForRow(row);
         }
     });
 
-    drawer.addEventListener("change", (event) => {
-        const statusSelect = event.target.closest("[data-quick-status]");
-        if (statusSelect) {
-            setSaveStatus("saving");
-            queueImmediateSave({ status: statusSelect.value });
-            return;
+    document.addEventListener("mousedown", (event) => {
+        if (state.popover && !state.popover.contains(event.target)) {
+            const row = event.target.closest(".app-row");
+            if (!row) {
+                closePopover(true);
+            }
         }
     });
 
-    drawer.addEventListener("input", (event) => {
-        const notesInput = event.target.closest("[data-quick-notes]");
-        if (notesInput) {
-            pendingPayload.notes = notesInput.value;
-            scheduleSave();
-        }
-    });
-
-    backdrop.addEventListener("click", closeDrawer);
     document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
-            closeDrawer();
+            if (state.activeMode === "modal") {
+                closeModal();
+            } else if (state.activeMode === "popover") {
+                closePopover(true);
+            }
         }
         if (event.key === "Enter" || event.key === " ") {
             if (isInteractive(event.target)) {
@@ -661,56 +1258,221 @@
             const row = event.target.closest(".app-row");
             if (row) {
                 event.preventDefault();
-                openDrawerForRow(row);
+                openQuickForRow(row);
             }
         }
     });
 
-    document.addEventListener("click", (event) => {
-        if (isInteractive(event.target)) {
+    document.addEventListener("input", (event) => {
+        const editor = state.activeEditor;
+        if (!editor || !editor.contains(event.target)) {
             return;
         }
-        const row = event.target.closest(".app-row");
-        if (!row) {
+        if (!event.target.matches("[data-autosave]")) {
             return;
         }
-        openDrawerForRow(row);
+        if (event.target.type === "date") {
+            return;
+        }
+        const field = event.target.dataset.autosave;
+        state.pendingPayload[field] = event.target.value;
+        clearFieldErrors(editor, field);
+        scheduleSave();
     });
+
+    document.addEventListener("change", (event) => {
+        const editor = state.activeEditor;
+        if (editor && editor.contains(event.target) && event.target.matches("[data-autosave]")) {
+            const field = event.target.dataset.autosave;
+            const value = event.target.value;
+            const previousValue = state.lastFieldSnapshot[field] || "";
+            state.lastFieldSnapshot[field] = value;
+            clearFieldErrors(editor, field);
+
+            if (field === "status" || field === "follow_up_on") {
+                state.lastUndoCandidate = {
+                    field,
+                    fromValue: previousValue,
+                    toValue: value,
+                };
+                setSaveStatus("saving");
+                queueImmediateSave({ [field]: value });
+                return;
+            }
+            state.pendingPayload[field] = value;
+            scheduleSave();
+        }
+
+        const followupItem = event.target.closest("[data-followup-id]");
+        if (followupItem) {
+            const followupId = followupItem.dataset.followupId;
+            const payload = {};
+            if (event.target.matches("[data-followup-complete]")) {
+                payload.is_completed = event.target.checked;
+            }
+            if (event.target.matches("[data-followup-due]")) {
+                payload.due_on = event.target.value;
+            }
+            if (event.target.matches("[data-followup-note]")) {
+                payload.note = event.target.value;
+            }
+            if (Object.keys(payload).length) {
+                sendFollowupUpdate(followupId, payload)
+                    .then((data) => {
+                        if (data.followup.is_completed) {
+                            followupItem.classList.add("is-complete");
+                        } else {
+                            followupItem.classList.remove("is-complete");
+                        }
+                    })
+                    .catch(() => {
+                        showToast("Follow-up update failed.");
+                    });
+            }
+        }
+
+        const quickToggle = event.target.closest("[data-quick-profile]");
+        if (quickToggle && event.target.type === "checkbox") {
+            const form = quickToggle.closest("form");
+            if (!form) {
+                return;
+            }
+            const csrfToken = getCookie("csrftoken");
+            const formData = new FormData(form);
+            fetch(form.action, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "X-CSRFToken": csrfToken,
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                body: formData,
+            })
+                .then((response) => response.json())
+                .then((data) => {
+                    if (!data.ok) {
+                        throw new Error("Profile update failed.");
+                    }
+                })
+                .catch(() => {
+                    showToast("Unable to update reminders.");
+                });
+        }
+    });
+
+    document.addEventListener("submit", (event) => {
+        const quickAddForm = event.target.closest("[data-quick-add]");
+        if (quickAddForm) {
+            event.preventDefault();
+            const csrfToken = getCookie("csrftoken");
+            const formData = new FormData(quickAddForm);
+            fetch(quickAddForm.action, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "X-CSRFToken": csrfToken,
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                body: formData,
+            })
+                .then((response) => response.json())
+                .then((data) => {
+                    if (!data.ok) {
+                        throw new Error(data.error || "Quick add failed.");
+                    }
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("selected", data.id);
+                    window.location.href = url.toString();
+                })
+                .catch(() => {
+                    showToast("Quick add failed. Check the fields and try again.");
+                });
+            return;
+        }
+
+        const followupForm = event.target.closest("[data-followup-create]");
+        if (followupForm) {
+            event.preventDefault();
+            const editor = state.activeEditor;
+            const followupUrl = editor ? editor.dataset.followupUrl : "";
+            if (!followupUrl) {
+                return;
+            }
+            const csrfToken = getCookie("csrftoken");
+            const dueOn = followupForm.querySelector("input[name='due_on']").value;
+            const note = followupForm.querySelector("input[name='note']").value;
+            fetch(followupUrl, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "X-CSRFToken": csrfToken,
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Content-Type": "application/json;charset=UTF-8",
+                },
+                body: JSON.stringify({ due_on: dueOn, note: note }),
+            })
+                .then((response) => response.json())
+                .then((data) => {
+                    if (!data.ok) {
+                        throw new Error(data.error || "Follow-up create failed.");
+                    }
+                    const list = editor.querySelector("[data-followup-list]");
+                    if (list) {
+                        const placeholder = list.querySelector(".text-subtle");
+                        if (placeholder) {
+                            placeholder.remove();
+                        }
+                        list.appendChild(renderFollowupItem(data.followup));
+                    }
+                    followupForm.reset();
+                })
+                .catch(() => {
+                    showToast("Unable to add follow-up.");
+                });
+        }
+    });
+
+    function handleSelectedParamChange() {
+        const selected = new URLSearchParams(window.location.search).get("selected");
+        if (selected && selected !== state.selectedId) {
+            const row = getRowById(selected);
+            if (row) {
+                openQuickForRow(row);
+            } else {
+                updateSelectedParam(null);
+            }
+        }
+        if (!selected && state.selectedId) {
+            closePopover(true);
+            closeModal();
+        }
+    }
+
+    window.addEventListener("popstate", handleSelectedParamChange);
+    window.addEventListener("resize", () => {
+        updateTopbarHeight();
+        if (state.popover && state.anchorEl) {
+            positionPopover(state.anchorEl, state.popover);
+        }
+    });
+    window.addEventListener("scroll", () => {
+        if (state.popover && state.anchorEl) {
+            positionPopover(state.anchorEl, state.popover);
+        }
+    }, true);
+
+    initSidebarToggle();
+    initUserMenu();
+    initKanban();
+    updateTopbarHeight();
 
     const selected = new URLSearchParams(window.location.search).get("selected");
     if (selected) {
         const row = getRowById(selected);
         if (row) {
-            openDrawerForRow(row);
+            openQuickForRow(row);
         } else {
             updateSelectedParam(null);
         }
     }
-
-    updateTopbarHeight();
-    window.addEventListener("resize", updateTopbarHeight);
-
-    function warnOnDuplicateIds() {
-        const seen = new Map();
-        const duplicates = new Map();
-        document.querySelectorAll("[id]").forEach((el) => {
-            const id = el.id;
-            if (!id) {
-                return;
-            }
-            if (seen.has(id)) {
-                duplicates.set(id, true);
-            } else {
-                seen.set(id, true);
-            }
-        });
-        if (duplicates.size) {
-            console.warn(
-                "Duplicate element ids detected:",
-                Array.from(duplicates.keys())
-            );
-        }
-    }
-
-    warnOnDuplicateIds();
 })();

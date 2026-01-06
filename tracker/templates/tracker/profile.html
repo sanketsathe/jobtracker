@@ -1,0 +1,36 @@
+{% extends "layout/base_app.html" %}
+
+{% block title %}Profile | JobTracker{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="page-header">
+        <div>
+            <h1>Profile</h1>
+            <p class="text-subtle">Update your job search identity and preferences.</p>
+        </div>
+        <div class="view-switcher" role="tablist" aria-label="Profile tabs">
+            <a class="segment {% if tab == 'profile' %}is-active{% endif %}" role="tab" aria-selected="{% if tab == 'profile' %}true{% else %}false{% endif %}" href="?tab=profile">Profile</a>
+            <a class="segment {% if tab == 'settings' %}is-active{% endif %}" role="tab" aria-selected="{% if tab == 'settings' %}true{% else %}false{% endif %}" href="?tab=settings">Settings</a>
+        </div>
+    </div>
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="tab" value="{{ tab }}">
+        <div class="form-grid">
+            {% for field in form %}
+                <div class="form-field">
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {% if field.help_text %}<small class="form-hint">{{ field.help_text }}</small>{% endif %}
+                    {% if field.errors %}
+                        <div class="form-error">{{ field.errors|striptags }}</div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+        <button class="btn" type="submit">Save</button>
+    </form>
+</div>
+{% endblock %}

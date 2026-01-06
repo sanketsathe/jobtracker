@@ -1,147 +1,269 @@
-{% extends "base.html" %}
+{% extends "layout/base_app.html" %}
 
 {% block title %}Applications | JobTracker{% endblock %}
 
-{% block content %}
-<div class="page-header">
-    <div>
-        <h1>Applications</h1>
-        <p class="text-subtle">Track your applications, status, and follow-ups.</p>
+{% block content_header %}
+<div class="content-header">
+    <div class="page-header">
+        <div>
+            <h1>Applications</h1>
+            <p class="text-subtle">Track applications, status, and follow-ups in one place.</p>
+        </div>
     </div>
-</div>
-
-<div class="table-toolbar">
-    <div class="filter-summary">
-        {% if request.GET.q or due_filter or status_filter %}
-            {% if request.GET.q %}
-                <a class="chip chip--filter" href="{% url 'tracker:application_list' %}?{% if due_filter %}due={{ due_filter }}&{% endif %}{% if status_filter %}status={{ status_filter }}{% endif %}">Search: {{ request.GET.q }} ✕</a>
-            {% endif %}
-            {% if due_filter %}
-                <a class="chip chip--filter" href="{% url 'tracker:application_list' %}?{% if request.GET.q %}q={{ request.GET.q|urlencode }}&{% endif %}{% if status_filter %}status={{ status_filter }}{% endif %}">Due: {{ due_filter }} ✕</a>
-            {% endif %}
-            {% if status_filter %}
-                <a class="chip chip--filter" href="{% url 'tracker:application_list' %}?{% if request.GET.q %}q={{ request.GET.q|urlencode }}&{% endif %}{% if due_filter %}due={{ due_filter }}{% endif %}">Status: {{ status_filter }} ✕</a>
-            {% endif %}
-        {% else %}
-            <span class="text-subtle">All applications</span>
-        {% endif %}
+    <div class="view-switcher" role="tablist" aria-label="Application views">
+        <a class="segment {% if view_mode == 'list' %}is-active{% endif %}" role="tab" aria-selected="{% if view_mode == 'list' %}true{% else %}false{% endif %}" href="?view=list{% if filters_query %}&{{ filters_query }}{% endif %}">List</a>
+        <a class="segment {% if view_mode == 'board' %}is-active{% endif %}" role="tab" aria-selected="{% if view_mode == 'board' %}true{% else %}false{% endif %}" href="?view=board{% if filters_query %}&{{ filters_query }}{% endif %}">Board</a>
+        <a class="segment {% if view_mode == 'followups' %}is-active{% endif %}" role="tab" aria-selected="{% if view_mode == 'followups' %}true{% else %}false{% endif %}" href="?view=followups{% if filters_query %}&{{ filters_query }}{% endif %}">Follow-ups</a>
     </div>
-    <div class="toolbar-group toolbar-group--right">
-        <details class="columns-toggle">
-            <summary class="btn-icon" aria-label="Columns" title="Columns">☷</summary>
-            <div class="columns-panel">
-                <label><input type="checkbox" data-col-toggle="position" checked disabled> Position</label>
-                <label><input type="checkbox" data-col-toggle="status" checked disabled> Status</label>
-                <label><input type="checkbox" data-col-toggle="followup" checked> Follow-up</label>
-                <label><input type="checkbox" data-col-toggle="location"> Location</label>
-                <label><input type="checkbox" data-col-toggle="applied"> Applied</label>
-                <label><input type="checkbox" data-col-toggle="notes"> Notes</label>
+    <div class="filter-bar">
+        <div class="view-pills">
+            <a class="pill {% if not due_filter and not status_filter and not search_query %}is-active{% endif %}" href="?view={{ view_mode }}">All</a>
+            <a class="pill {% if due_filter == 'today' %}is-active{% endif %}" href="?view={{ view_mode }}&due=today">Follow-ups Due</a>
+            <a class="pill {% if due_filter == 'overdue' %}is-active{% endif %}" href="?view={{ view_mode }}&due=overdue">Overdue</a>
+            <a class="pill {% if due_filter == 'week' %}is-active{% endif %}" href="?view={{ view_mode }}&due=week">This Week</a>
+            <a class="pill {% if status_filter == 'INTERVIEW' %}is-active{% endif %}" href="?view={{ view_mode }}&status=INTERVIEW">Interviews</a>
+        </div>
+        <form class="filter-controls" method="get">
+            <input type="hidden" name="view" value="{{ view_mode }}">
+            <div class="field field--grow">
+                <input type="search" name="search" value="{{ search_query }}" placeholder="Search company, title, notes">
             </div>
+            <div class="field">
+                <select name="status" aria-label="Status filter">
+                    <option value="">All status</option>
+                    {% for code, label in status_choices %}
+                        <option value="{{ code }}" {% if status_filter == code %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <select name="due" aria-label="Follow-up filter">
+                    <option value="">Any due date</option>
+                    <option value="today" {% if due_filter == 'today' %}selected{% endif %}>Due today</option>
+                    <option value="overdue" {% if due_filter == 'overdue' %}selected{% endif %}>Overdue</option>
+                    <option value="week" {% if due_filter == 'week' %}selected{% endif %}>This week</option>
+                </select>
+            </div>
+            <div class="field">
+                <select name="sort" aria-label="Sort">
+                    <option value="updated" {% if sort_option == 'updated' or not sort_option %}selected{% endif %}>Updated desc</option>
+                    <option value="follow_up" {% if sort_option == 'follow_up' %}selected{% endif %}>Follow-up date asc</option>
+                </select>
+            </div>
+            <button class="btn secondary" type="submit">Apply</button>
+            <a class="btn" href="{% url 'tracker:application_create' %}">New application</a>
+            <a class="btn btn--ghost" href="{% url 'tracker:application_export' %}">Export CSV</a>
+        </form>
+        <details class="quick-add">
+            <summary class="btn btn--ghost">Quick Add +</summary>
+            <form method="post" action="{% url 'tracker:application_quick_add' %}" data-quick-add>
+                {% csrf_token %}
+                <input type="text" name="company" placeholder="Company" required>
+                <input type="text" name="title" placeholder="Role" required>
+                <input type="text" name="location" placeholder="Location">
+                <button class="btn" type="submit">Add</button>
+            </form>
         </details>
-        <a class="btn-icon" href="{% url 'tracker:application_list' %}" aria-label="Reset filters" title="Reset filters">↺</a>
     </div>
 </div>
+{% endblock %}
 
-    {% if applications %}
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th class="col-position" data-col="position">Position</th>
-                    <th class="col-status" data-col="status">Status</th>
-                    <th class="col-followup" data-col="followup">Follow-up</th>
-                    <th class="col-location" data-col="location">Location</th>
-                    <th class="col-applied" data-col="applied">Applied</th>
-                    <th class="col-notes" data-col="notes">Notes</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for application in applications %}
-                    <tr class="app-row {% if request.GET.selected == application.pk|stringformat:'s' %}is-selected{% endif %}" data-app-id="{{ application.pk }}" data-drawer-url="{% url 'tracker:application_drawer' application.pk %}" data-quick-url="{% url 'tracker:application_quick_action' application.pk %}" tabindex="0" aria-label="Open details for {{ application.job.title|default:application.job.company }}">
-                        <td data-col="position" class="position-cell">
-                            <div class="position-title truncate">{{ application.job.title|default:application.job.company }}</div>
-                            <div class="position-subtitle truncate">
-                                {{ application.job.company }}{% if application.job.location %} · {{ application.job.location }}{% endif %}
-                                {% if application.job.job_url %}
-                                    · <a class="link-muted" href="{{ application.job.job_url }}" target="_blank" rel="noopener">View posting</a>
+{% block content %}
+    {% if view_mode == 'list' %}
+        {% if due_today_count or overdue_count %}
+            <div class="reminder-strip">
+                <div class="reminder-item">
+                    <span class="badge badge--warning">{{ due_today_count }}</span>
+                    <span>Due today</span>
+                    <a class="link-muted" href="?view={{ view_mode }}&due=today">View</a>
+                </div>
+                <div class="reminder-item">
+                    <span class="badge badge--danger">{{ overdue_count }}</span>
+                    <span>Overdue</span>
+                    <a class="link-muted" href="?view={{ view_mode }}&due=overdue">View</a>
+                </div>
+            </div>
+        {% endif %}
+        {% if applications %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th class="col-position" data-col="position">Position</th>
+                        <th class="col-status" data-col="status">Status</th>
+                        <th class="col-followup" data-col="followup">Follow-up</th>
+                        <th class="col-next-action" data-col="next-action">Next action</th>
+                        <th class="col-notes" data-col="notes">Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for application in applications %}
+                        <tr class="app-row {% if request.GET.selected == application.pk|stringformat:'s' %}is-selected{% endif %}" data-app-id="{{ application.pk }}" data-quick-url="{% url 'tracker:application_quick' application.pk %}" data-edit-url="{% url 'tracker:application_edit' application.pk %}" data-patch-url="{% url 'tracker:application_patch' application.pk %}" tabindex="0" aria-label="Open details for {{ application.job.title|default:application.job.company }}">
+                            <td data-col="position" data-col-label="Position" class="position-cell">
+                                <div class="position-title truncate" data-title-display>{{ application.job.title|default:application.job.company }}</div>
+                                <div class="position-subtitle truncate">
+                                    <span data-company-display>{{ application.job.company }}</span>
+                                    <span data-location-wrap {% if not application.location_text and not application.job.location %}hidden{% endif %}>
+                                        · <span data-location-display>{{ application.location_text|default:application.job.location }}</span>
+                                    </span>
+                                    <span data-job-url-wrap {% if not application.job_url and not application.job.job_url %}hidden{% endif %}>
+                                        · <a class="link-muted" data-job-url-display href="{{ application.job_url|default:application.job.job_url }}" target="_blank" rel="noopener">View posting</a>
+                                    </span>
+                                </div>
+                            </td>
+                            <td data-col="status" data-col-label="Status">
+                                <span class="badge-status badge-status--{{ application.status|lower }}" data-status-display>{{ application.get_status_display }}</span>
+                            </td>
+                            <td data-col="followup" data-col-label="Follow-up">
+                                {% if application.follow_up_on %}
+                                    <span class="followup" data-followup-display>{{ application.follow_up_on|date:"M d, Y" }}</span>
+                                    {% if application.follow_up_on < today %}
+                                        <span class="badge badge--danger" data-followup-badge>Overdue</span>
+                                    {% elif application.follow_up_on == today %}
+                                        <span class="badge badge--warning" data-followup-badge>Today</span>
+                                    {% elif application.follow_up_on <= week_end %}
+                                        <span class="badge badge--info" data-followup-badge>This week</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="followup followup--none" data-followup-display>—</span>
+                                {% endif %}
+                            </td>
+                            <td data-col="next-action" data-col-label="Next action"><span class="truncate" data-next-action-display>{{ application.next_action|default:"—" }}</span></td>
+                            <td data-col="notes" data-col-label="Notes"><span class="truncate" data-notes-display>{{ application.notes|default:"—" }}</span></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="empty-state">
+                <p>No applications yet.</p>
+                <a class="btn" href="{% url 'tracker:application_create' %}">Add your first application</a>
+            </div>
+        {% endif %}
+    {% elif view_mode == 'board' %}
+        {% if applications %}
+            <div class="kanban" data-kanban>
+                {% for column in status_columns %}
+                    <section class="kanban-column" data-status="{{ column.code }}">
+                        <div class="kanban-column__header">
+                            <h2>{{ column.label }}</h2>
+                            <span class="badge" data-column-count>{{ column.applications|length }}</span>
+                        </div>
+                        <div class="kanban-cards" data-dropzone>
+                            {% for application in column.applications %}
+                                <article class="kanban-card app-row" draggable="true" data-app-id="{{ application.pk }}" data-quick-url="{% url 'tracker:application_quick' application.pk %}" data-edit-url="{% url 'tracker:application_edit' application.pk %}" data-patch-url="{% url 'tracker:application_patch' application.pk %}" tabindex="0">
+                                    <div class="kanban-card__title">{{ application.job.title|default:application.job.company }}</div>
+                                    <div class="kanban-card__meta">
+                                        {{ application.job.company }}
+                                        {% if application.location_text or application.job.location %}
+                                            · {{ application.location_text|default:application.job.location }}
+                                        {% endif %}
+                                    </div>
+                                    <label class="sr-only" for="move-{{ application.pk }}">Move to…</label>
+                                    <select id="move-{{ application.pk }}" class="kanban-move" data-move-select data-stop-rowclick data-prev-value="{{ application.status }}">
+                                        {% for value, label in status_choices %}
+                                            <option value="{{ value }}" {% if value == application.status %}selected{% endif %}>Move to {{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </article>
+                            {% empty %}
+                                <div class="kanban-empty text-subtle">No applications here.</div>
+                            {% endfor %}
+                        </div>
+                    </section>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <p>No applications to display yet.</p>
+                <a class="btn" href="{% url 'tracker:application_create' %}">Add your first application</a>
+            </div>
+        {% endif %}
+    {% elif view_mode == 'followups' %}
+        <section class="followup-section">
+            <h2>Due Today</h2>
+            {% if today_items %}
+                <div class="followup-grid">
+                    {% for item in today_items %}
+                        <article class="followup-card app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
+                            <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
+                            <div class="followup-card__meta">
+                                {{ item.application.job.company }}
+                                <span class="badge badge--info">{{ item.due_on|date:"M d" }}</span>
+                                {% if item.type == "followup" %}
+                                    <span class="pill">Follow-up</span>
+                                {% else %}
+                                    <span class="pill">Primary</span>
                                 {% endif %}
                             </div>
-                        </td>
-                        <td data-col="status">
-                            <span class="badge-status" data-status-display>{{ application.get_status_display }}</span>
-                        </td>
-                        <td data-col="followup">
-                            {% if application.follow_up_at %}
-                                <span class="followup" data-followup-display>{{ application.follow_up_at|date:"M d, Y H:i" }}</span>
+                            {% if item.type == "followup" %}
+                                <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
                             {% else %}
-                                <span class="followup followup--none" data-followup-display>—</span>
+                                <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
                             {% endif %}
-                        </td>
-                        <td data-col="location">
-                            {{ application.job.location|default:"—" }}
-                        </td>
-                        <td data-col="applied"><span data-applied-display>{{ application.applied_at|date:"M d, Y H:i"|default:"—" }}</span></td>
-                        <td data-col="notes"><span data-notes-display>{{ application.notes|default:"—" }}</span></td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>No applications yet. Start by adding one.</p>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-subtle">No follow-ups due today.</p>
+            {% endif %}
+        </section>
+
+        <section class="followup-section">
+            <h2>Overdue</h2>
+            {% if overdue_items %}
+                <div class="followup-grid">
+                    {% for item in overdue_items %}
+                        <article class="followup-card followup-card--overdue app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
+                            <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
+                            <div class="followup-card__meta">
+                                {{ item.application.job.company }}
+                                <span class="badge badge--danger">{{ item.due_on|date:"M d" }}</span>
+                                {% if item.type == "followup" %}
+                                    <span class="pill">Follow-up</span>
+                                {% else %}
+                                    <span class="pill">Primary</span>
+                                {% endif %}
+                            </div>
+                            {% if item.type == "followup" %}
+                                <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
+                            {% else %}
+                                <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
+                            {% endif %}
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-subtle">No overdue follow-ups.</p>
+            {% endif %}
+        </section>
+
+        <section class="followup-section">
+            <h2>This Week</h2>
+            {% if week_items %}
+                <div class="followup-grid">
+                    {% for item in week_items %}
+                        <article class="followup-card app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
+                            <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
+                            <div class="followup-card__meta">
+                                {{ item.application.job.company }}
+                                <span class="badge badge--warning">{{ item.due_on|date:"M d" }}</span>
+                                {% if item.type == "followup" %}
+                                    <span class="pill">Follow-up</span>
+                                {% else %}
+                                    <span class="pill">Primary</span>
+                                {% endif %}
+                            </div>
+                            {% if item.type == "followup" %}
+                                <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
+                            {% else %}
+                                <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
+                            {% endif %}
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-subtle">You are all caught up.</p>
+            {% endif %}
+        </section>
     {% endif %}
-</div>
-<script>
-    (function() {
-        const STORAGE_KEY = "jobtracker.columns";
-        const defaultCols = ["position", "status", "followup"];
-        const requiredCols = ["position", "status"];
-
-        function loadEnabled() {
-            try {
-                const stored = localStorage.getItem(STORAGE_KEY);
-                if (stored) {
-                    const parsed = JSON.parse(stored);
-                    if (Array.isArray(parsed)) {
-                        requiredCols.forEach((col) => {
-                            if (!parsed.includes(col)) parsed.push(col);
-                        });
-                        return parsed;
-                    }
-                }
-            } catch (e) {}
-            return defaultCols;
-        }
-
-        function saveEnabled(enabled) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(enabled));
-        }
-
-        function apply(enabled) {
-            document.querySelectorAll("[data-col]").forEach((el) => {
-                const col = el.getAttribute("data-col");
-                el.style.display = enabled.includes(col) ? "" : "none";
-            });
-            document.querySelectorAll("[data-col-toggle]").forEach((checkbox) => {
-                const col = checkbox.getAttribute("data-col-toggle");
-                checkbox.checked = enabled.includes(col);
-            });
-        }
-
-        const enabledCols = loadEnabled();
-        apply(enabledCols);
-
-        document.querySelectorAll("[data-col-toggle]").forEach((checkbox) => {
-            checkbox.addEventListener("change", () => {
-                const col = checkbox.getAttribute("data-col-toggle");
-                let updated = loadEnabled();
-                if (checkbox.checked) {
-                    if (!updated.includes(col)) updated.push(col);
-                } else {
-                    updated = updated.filter((c) => c !== col);
-                }
-                saveEnabled(updated);
-                apply(updated);
-            });
-        });
-    })();
-</script>
 {% endblock %}

@@ -1,0 +1,63 @@
+<div class="popover-card" data-app-id="{{ application.pk }}" data-patch-url="{% url 'tracker:application_patch' application.pk %}" data-edit-url="{% url 'tracker:application_edit' application.pk %}">
+    <div class="popover-header">
+        <div>
+            <div class="popover-title" data-app-title>{{ application.job.title|default:application.job.company }}</div>
+            <div class="popover-subtitle text-subtle">
+                <span data-app-company>{{ application.job.company }}</span>
+                {% if application.location_text or application.job.location %}
+                    · <span data-app-location>{{ application.location_text|default:application.job.location }}</span>
+                {% endif %}
+                <span data-app-link-wrap {% if not application.job_url and not application.job.job_url %}hidden{% endif %}>
+                    · <a class="link-muted" data-app-link href="{{ application.job_url|default:application.job.job_url }}" target="_blank" rel="noopener">View posting</a>
+                </span>
+            </div>
+        </div>
+        <div class="popover-actions">
+            <span class="save-indicator" data-save-status aria-hidden="true"></span>
+            <button type="button" class="icon-btn icon-btn--ghost" data-open-editor aria-label="Maximize editor" title="Maximize">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M3 9V3h6" />
+                    <path d="M21 9V3h-6" />
+                    <path d="M3 15v6h6" />
+                    <path d="M21 15v6h-6" />
+                </svg>
+            </button>
+            <button type="button" class="icon-btn icon-btn--ghost" data-popover-close aria-label="Close">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M6 6l12 12" />
+                    <path d="M18 6l-12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="popover-body">
+        <div class="form-field">
+            <label for="quick-status-{{ application.pk }}">Status</label>
+            <select id="quick-status-{{ application.pk }}" name="status" data-autosave="status">
+                {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if value == application.status %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <div class="form-error" data-field-error="status"></div>
+        </div>
+        <div class="form-field">
+            <label for="quick-followup-{{ application.pk }}">Follow-up date</label>
+            <div class="inline-row">
+                <input id="quick-followup-{{ application.pk }}" type="date" name="follow_up_on" value="{{ application.follow_up_on|date:'Y-m-d' }}" data-autosave="follow_up_on">
+                <button type="button" class="btn btn-quiet btn-compact" data-followup-clear>Clear</button>
+            </div>
+            <div class="form-error" data-field-error="follow_up_on"></div>
+        </div>
+        <div class="form-field">
+            <label for="quick-next-action-{{ application.pk }}">Next action</label>
+            <textarea id="quick-next-action-{{ application.pk }}" name="next_action" rows="2" data-autosave="next_action">{{ application.next_action|default_if_none:"" }}</textarea>
+            <div class="form-error" data-field-error="next_action"></div>
+        </div>
+        <div class="quick-notes">
+            <div class="quick-notes__label">Notes</div>
+            <div class="quick-notes__text">{{ application.notes|default:"No notes yet."|truncatechars:140 }}</div>
+            <button type="button" class="btn btn--ghost btn-compact" data-open-editor>Open full editor</button>
+        </div>
+    </div>
+</div>

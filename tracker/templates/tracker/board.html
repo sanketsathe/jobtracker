@@ -1,0 +1,48 @@
+{% extends "layout/base_app.html" %}
+
+{% block title %}Board | JobTracker{% endblock %}
+
+{% block content_header %}
+<div class="content-header">
+    <div class="page-header">
+        <div>
+            <h1>Board</h1>
+            <p class="text-subtle">Move applications through your pipeline.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="kanban" data-kanban>
+    {% for column in status_columns %}
+        <section class="kanban-column" data-status="{{ column.code }}">
+            <div class="kanban-column__header">
+                <h2>{{ column.label }}</h2>
+                <span class="badge" data-column-count>{{ column.applications|length }}</span>
+            </div>
+            <div class="kanban-cards" data-dropzone>
+                {% for application in column.applications %}
+                    <article class="kanban-card app-row" draggable="true" data-app-id="{{ application.pk }}" data-quick-url="{% url 'tracker:application_quick' application.pk %}" data-edit-url="{% url 'tracker:application_edit' application.pk %}" data-patch-url="{% url 'tracker:application_patch' application.pk %}" tabindex="0">
+                        <div class="kanban-card__title">{{ application.job.title|default:application.job.company }}</div>
+                        <div class="kanban-card__meta">
+                            {{ application.job.company }}
+                            {% if application.location_text or application.job.location %}
+                                &bull; {{ application.location_text|default:application.job.location }}
+                            {% endif %}
+                        </div>
+                        <label class="sr-only" for="move-{{ application.pk }}">Move to…</label>
+                        <select id="move-{{ application.pk }}" class="kanban-move" data-move-select data-stop-rowclick data-prev-value="{{ application.status }}">
+                            {% for value, label in status_choices %}
+                                <option value="{{ value }}" {% if value == application.status %}selected{% endif %}>Move to {{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </article>
+                {% empty %}
+                    <div class="kanban-empty text-subtle">No applications here.</div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endfor %}
+</div>
+{% endblock %}

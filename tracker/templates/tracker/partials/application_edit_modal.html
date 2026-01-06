@@ -1,0 +1,127 @@
+<div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title-{{ application.pk }}">
+    <div class="modal-header">
+        <div class="modal-headings">
+            <h2 id="modal-title-{{ application.pk }}" class="modal-title" data-app-title>{{ application.job.title|default:application.job.company }}</h2>
+            <div class="modal-subtitle text-subtle">
+                <span data-app-company>{{ application.job.company }}</span>
+                {% if application.location_text or application.job.location %}
+                    · <span data-app-location>{{ application.location_text|default:application.job.location }}</span>
+                {% endif %}
+                <span data-app-link-wrap {% if not application.job_url and not application.job.job_url %}hidden{% endif %}>
+                    · <a class="link-muted" data-app-link href="{{ application.job_url|default:application.job.job_url }}" target="_blank" rel="noopener">View posting</a>
+                </span>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <span class="save-indicator" data-save-status aria-hidden="true"></span>
+            <span class="save-text" data-save-text>Not saved yet</span>
+            <button type="button" class="icon-btn icon-btn--ghost" data-modal-close aria-label="Close">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M6 6l12 12" />
+                    <path d="M18 6l-12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="modal-body" data-app-id="{{ application.pk }}" data-patch-url="{% url 'tracker:application_patch' application.pk %}" data-followup-url="{% url 'tracker:application_followup_create' application.pk %}">
+        <section class="modal-section">
+            <div class="modal-section-title">Key details</div>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="modal-company-{{ application.pk }}">Company</label>
+                    <input id="modal-company-{{ application.pk }}" name="company" value="{{ application.job.company }}" data-autosave="company">
+                    <div class="form-error" data-field-error="company"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-title-field-{{ application.pk }}">Role</label>
+                    <input id="modal-title-field-{{ application.pk }}" name="title" value="{{ application.job.title }}" data-autosave="title">
+                    <div class="form-error" data-field-error="title"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-location-{{ application.pk }}">Location</label>
+                    <input id="modal-location-{{ application.pk }}" name="location" value="{{ application.location_text|default:application.job.location }}" data-autosave="location">
+                    <div class="form-error" data-field-error="location"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-job-url-{{ application.pk }}">Job URL</label>
+                    <input id="modal-job-url-{{ application.pk }}" type="url" name="job_url" value="{{ application.job_url|default:application.job.job_url }}" data-autosave="job_url">
+                    <div class="form-error" data-field-error="job_url"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-source-{{ application.pk }}">Source</label>
+                    <input id="modal-source-{{ application.pk }}" name="source" value="{{ application.source|default_if_none:"" }}" data-autosave="source">
+                    <div class="form-error" data-field-error="source"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-comp-{{ application.pk }}">Compensation</label>
+                    <input id="modal-comp-{{ application.pk }}" name="compensation_text" value="{{ application.compensation_text|default_if_none:"" }}" data-autosave="compensation_text">
+                    <div class="form-error" data-field-error="compensation_text"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="modal-section">
+            <div class="modal-section-title">Status and next steps</div>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="modal-status-{{ application.pk }}">Status</label>
+                    <select id="modal-status-{{ application.pk }}" name="status" data-autosave="status">
+                        {% for value, label in status_choices %}
+                            <option value="{{ value }}" {% if value == application.status %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-error" data-field-error="status"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-followup-{{ application.pk }}">Follow-up date</label>
+                    <div class="inline-row">
+                        <input id="modal-followup-{{ application.pk }}" type="date" name="follow_up_on" value="{{ application.follow_up_on|date:'Y-m-d' }}" data-autosave="follow_up_on">
+                        <button type="button" class="btn btn-quiet btn-compact" data-followup-clear>Clear</button>
+                    </div>
+                    <div class="form-error" data-field-error="follow_up_on"></div>
+                </div>
+                <div class="form-field form-field--full">
+                    <label for="modal-next-action-{{ application.pk }}">Next action</label>
+                    <textarea id="modal-next-action-{{ application.pk }}" name="next_action" rows="3" data-autosave="next_action">{{ application.next_action|default_if_none:"" }}</textarea>
+                    <div class="form-error" data-field-error="next_action"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="modal-section">
+            <div class="modal-section-title">Notes</div>
+            <textarea id="modal-notes-{{ application.pk }}" name="notes" rows="6" data-autosave="notes">{{ application.notes|default_if_none:"" }}</textarea>
+            <div class="form-error" data-field-error="notes"></div>
+        </section>
+
+        <section class="modal-section">
+            <div class="modal-section-title">Follow-ups</div>
+            <div class="followup-list" data-followup-list>
+                {% for followup in followups %}
+                    <div class="followup-item {% if followup.due_on < today and not followup.is_completed %}is-overdue{% endif %}" data-followup-id="{{ followup.pk }}">
+                        <label class="followup-check">
+                            <input type="checkbox" data-followup-complete {% if followup.is_completed %}checked{% endif %}>
+                            <span class="sr-only">Mark complete</span>
+                        </label>
+                        <input type="date" value="{{ followup.due_on|date:'Y-m-d' }}" data-followup-due>
+                        <input type="text" value="{{ followup.note|default_if_none:'' }}" placeholder="Note" data-followup-note>
+                    </div>
+                {% empty %}
+                    <div class="text-subtle">No follow-ups yet.</div>
+                {% endfor %}
+            </div>
+            <form class="followup-form" data-followup-create>
+                {% csrf_token %}
+                <input type="date" name="due_on" required>
+                <input type="text" name="note" placeholder="Add a follow-up note">
+                <button class="btn secondary" type="submit">Add follow-up</button>
+            </form>
+        </section>
+
+        <section class="modal-section modal-section--danger">
+            <div class="modal-section-title">Danger zone</div>
+            <a class="btn btn-quiet danger" href="{% url 'tracker:application_delete' application.pk %}">Delete</a>
+        </section>
+    </div>
+</div>

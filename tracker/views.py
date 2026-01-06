@@ -1,45 +1,54 @@
-from datetime import datetime, time, timedelta
+from datetime import timedelta
+import csv
 import json
+from urllib.parse import urlencode
 
 from django.contrib import messages
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Q
-from django.http import HttpResponseRedirect, Http404, JsonResponse
+from django.db.models import F, Q
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
-from django.urls import reverse_lazy, reverse
+from django.urls import reverse_lazy
 from django.utils import timezone, dateparse
 from django.views import View
-from django.views.generic import DeleteView, DetailView, FormView, ListView, UpdateView
+from django.views.generic import DeleteView, DetailView, FormView, ListView, TemplateView, UpdateView
 
-from .forms import NewApplicationForm, ApplicationUpdateForm
-from .models import Application, JobLead
+from .forms import (
+    ApplicationUpdateForm,
+    NewApplicationForm,
+    UserProfileIdentityForm,
+    UserProfileSettingsForm,
+)
+from .models import Application, FollowUp, JobLead, UserProfile
 
 
 class ApplicationListView(LoginRequiredMixin, ListView):
-    """List job applications with simple filters."""
+    """List applications with list/board/follow-up views and filters."""
 
     model = Application
     template_name = "tracker/application_list.html"
     context_object_name = "applications"
 
+    def _base_queryset(self):
+        queryset = Application.objects.select_related("job")
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(owner=self.request.user)
+
     def get_queryset(self):
-        queryset = (
-            super()
-            .get_queryset()
-            .select_related("job")
-            .order_by("-updated_at")
-        )
+        queryset = self._base_queryset()
 
-        if not self.request.user.is_superuser:
-            queryset = queryset.filter(owner=self.request.user)
-
-        query = self.request.GET.get("q", "").strip()
-        if query:
+        search_query = self.request.GET.get("search", "").strip()
+        if not search_query:
+            search_query = self.request.GET.get("q", "").strip()
+        if search_query:
             queryset = queryset.filter(
-                Q(job__company__icontains=query)
-                | Q(job__title__icontains=query)
-                | Q(job__location__icontains=query)
+                Q(job__company__icontains=search_query)
+                | Q(job__title__icontains=search_query)
+                | Q(job__location__icontains=search_query)
+                | Q(notes__icontains=search_query)
+                | Q(location_text__icontains=search_query)
             )
 
         status_filter = self.request.GET.get("status")
@@ -47,51 +56,204 @@ class ApplicationListView(LoginRequiredMixin, ListView):
             queryset = queryset.filter(status=status_filter)
 
         due_filter = self.request.GET.get("due")
-        now = timezone.now()
-        if due_filter == "overdue":
-            queryset = queryset.filter(follow_up_at__lt=now).exclude(
-                status__in=[Application.Status.OFFER, Application.Status.REJECTED]
-            )
-        elif due_filter == "7":
-            upcoming = now + timedelta(days=7)
-            queryset = queryset.filter(follow_up_at__gte=now, follow_up_at__lte=upcoming).exclude(
-                status__in=[Application.Status.OFFER, Application.Status.REJECTED]
-            )
+        today = timezone.localdate()
+        terminal_statuses = [Application.Status.ACCEPTED, Application.Status.REJECTED]
+        if due_filter == "today":
+            queryset = queryset.filter(follow_up_on=today).exclude(status__in=terminal_statuses)
+        elif due_filter == "overdue":
+            queryset = queryset.filter(follow_up_on__lt=today).exclude(status__in=terminal_statuses)
+        elif due_filter in ("7", "week"):
+            upcoming = today + timedelta(days=7)
+            queryset = queryset.filter(
+                follow_up_on__gt=today,
+                follow_up_on__lte=upcoming,
+            ).exclude(status__in=terminal_statuses)
         elif due_filter == "none":
-            queryset = queryset.filter(follow_up_at__isnull=True)
+            queryset = queryset.filter(follow_up_on__isnull=True)
+
+        sort_option = self.request.GET.get("sort")
+        if sort_option == "follow_up":
+            queryset = queryset.order_by(F("follow_up_on").asc(nulls_last=True), "-updated_at")
+        else:
+            queryset = queryset.order_by("-updated_at")
 
         return queryset
 
+    def _build_items(self, apps, followups):
+        items = []
+        for application in apps:
+            items.append(
+                {
+                    "type": "application",
+                    "due_on": application.follow_up_on,
+                    "application": application,
+                }
+            )
+        for followup in followups:
+            items.append(
+                {
+                    "type": "followup",
+                    "due_on": followup.due_on,
+                    "application": followup.application,
+                    "followup": followup,
+                }
+            )
+        return sorted(items, key=lambda item: (item["due_on"] or timezone.localdate()))
+
+    def _followup_sections(self, search_query="", status_filter=""):
+        today = timezone.localdate()
+        week_end = today + timedelta(days=7)
+        terminal_statuses = [Application.Status.ACCEPTED, Application.Status.REJECTED]
+
+        applications = self._base_queryset().exclude(status__in=terminal_statuses)
+        followups = FollowUp.objects.select_related("application__job").filter(is_completed=False)
+        if not self.request.user.is_superuser:
+            followups = followups.filter(application__owner=self.request.user)
+
+        if search_query:
+            applications = applications.filter(
+                Q(job__company__icontains=search_query)
+                | Q(job__title__icontains=search_query)
+                | Q(notes__icontains=search_query)
+                | Q(location_text__icontains=search_query)
+            )
+            followups = followups.filter(
+                Q(application__job__company__icontains=search_query)
+                | Q(application__job__title__icontains=search_query)
+                | Q(note__icontains=search_query)
+            )
+
+        if status_filter:
+            applications = applications.filter(status=status_filter)
+            followups = followups.filter(application__status=status_filter)
+
+        today_items = self._build_items(
+            applications.filter(follow_up_on=today),
+            followups.filter(due_on=today),
+        )
+        overdue_items = self._build_items(
+            applications.filter(follow_up_on__lt=today),
+            followups.filter(due_on__lt=today),
+        )
+        week_items = self._build_items(
+            applications.filter(follow_up_on__gt=today, follow_up_on__lte=week_end),
+            followups.filter(due_on__gt=today, due_on__lte=week_end),
+        )
+
+        return today, week_end, today_items, overdue_items, week_items
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["status_filter"] = self.request.GET.get("status", "")
-        context["due_filter"] = self.request.GET.get("due", "")
-        context["search_query"] = self.request.GET.get("q", "").strip()
-        context["status_choices"] = Application.Status.choices
+        view_mode = self.request.GET.get("view", "list")
+        if view_mode not in {"list", "board", "followups"}:
+            view_mode = "list"
 
-        base_qs = Application.objects.select_related("job")
-        if not self.request.user.is_superuser:
-            base_qs = base_qs.filter(owner=self.request.user)
-        now = timezone.now()
-        context["sidebar_counts"] = {
-            "total": base_qs.count(),
-            "overdue": base_qs.filter(follow_up_at__lt=now).exclude(
-                status__in=[Application.Status.OFFER, Application.Status.REJECTED]
-            ).count(),
-            "due7": base_qs.filter(
-                follow_up_at__gte=now,
-                follow_up_at__lte=now + timedelta(days=7),
+        status_filter = self.request.GET.get("status", "")
+        due_filter = self.request.GET.get("due", "")
+        search_query = self.request.GET.get("search", "").strip()
+        if not search_query:
+            search_query = self.request.GET.get("q", "").strip()
+        sort_option = self.request.GET.get("sort", "")
+
+        filters = {}
+        for key, value in (
+            ("search", search_query),
+            ("status", status_filter),
+            ("due", due_filter),
+            ("sort", sort_option),
+        ):
+            if value:
+                filters[key] = value
+
+        context.update(
+            {
+                "view_mode": view_mode,
+                "status_filter": status_filter,
+                "due_filter": due_filter,
+                "search_query": search_query,
+                "sort_option": sort_option,
+                "filters_query": urlencode(filters),
+                "status_choices": Application.Status.choices,
+            }
+        )
+
+        today = timezone.localdate()
+        context["today"] = today
+        context["week_end"] = today + timedelta(days=7)
+        terminal_statuses = [Application.Status.ACCEPTED, Application.Status.REJECTED]
+        base_qs = self._base_queryset().exclude(status__in=terminal_statuses)
+        context["due_today_count"] = base_qs.filter(follow_up_on=today).count()
+        context["overdue_count"] = base_qs.filter(follow_up_on__lt=today).count()
+
+        board_source = self.get_queryset()
+        status_columns = []
+        for code, label in Application.Status.choices:
+            status_columns.append(
+                {
+                    "code": code,
+                    "label": label,
+                    "applications": board_source.filter(status=code).order_by("-updated_at"),
+                }
             )
-            .exclude(status__in=[Application.Status.OFFER, Application.Status.REJECTED])
-            .count(),
-            "none": base_qs.filter(follow_up_at__isnull=True).count(),
-            "statuses": {code: base_qs.filter(status=code).count() for code, _ in Application.Status.choices},
-        }
-        context["status_links"] = [
-            {"code": code, "label": label, "count": context["sidebar_counts"]["statuses"].get(code, 0)}
-            for code, label in Application.Status.choices
-        ]
+        context["status_columns"] = status_columns
+
+        (
+            follow_today,
+            follow_week_end,
+            today_items,
+            overdue_items,
+            week_items,
+        ) = self._followup_sections(search_query=search_query, status_filter=status_filter)
+        context["followup_today"] = follow_today
+        context["followup_week_end"] = follow_week_end
+        context["today_items"] = today_items
+        context["overdue_items"] = overdue_items
+        context["week_items"] = week_items
+
+        if due_filter == "today":
+            context["overdue_items"] = []
+            context["week_items"] = []
+        elif due_filter == "overdue":
+            context["today_items"] = []
+            context["week_items"] = []
+        elif due_filter in ("7", "week"):
+            context["today_items"] = []
+            context["overdue_items"] = []
+
         return context
+
+
+class ApplicationExportView(LoginRequiredMixin, View):
+    def get(self, request):
+        applications = Application.objects.select_related("job")
+        if not request.user.is_superuser:
+            applications = applications.filter(owner=request.user)
+
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = "attachment; filename=applications.csv"
+        writer = csv.writer(response)
+        writer.writerow(
+            [
+                "Company",
+                "Title",
+                "Status",
+                "Follow up on",
+                "Next action",
+                "Updated at",
+            ]
+        )
+        for application in applications.order_by("-updated_at"):
+            writer.writerow(
+                [
+                    application.job.company,
+                    application.job.title,
+                    application.get_status_display(),
+                    application.follow_up_on.isoformat() if application.follow_up_on else "",
+                    application.next_action,
+                    application.updated_at.isoformat(),
+                ]
+            )
+        return response
 
 
 class ApplicationUpdateView(LoginRequiredMixin, UpdateView):
@@ -108,6 +270,16 @@ class ApplicationUpdateView(LoginRequiredMixin, UpdateView):
         return queryset.filter(owner=self.request.user)
 
     def form_valid(self, form):
+        terminal_statuses = {Application.Status.ACCEPTED, Application.Status.REJECTED}
+        new_status = form.cleaned_data.get("status")
+        force = str(self.request.POST.get("force") or self.request.GET.get("force")).lower() == "true"
+        if (
+            self.object.status in terminal_statuses
+            and new_status not in terminal_statuses
+            and not (self.request.user.is_staff and force)
+        ):
+            form.add_error("status", "Status is locked in a terminal state.")
+            return self.form_invalid(form)
         response = super().form_valid(form)
         messages.success(self.request, "Application updated.")
         return response
@@ -168,67 +340,42 @@ class ApplicationActionBaseView(LoginRequiredMixin, View):
         return get_object_or_404(self.get_queryset(), pk=pk)
 
 
-class ApplicationStatusUpdateView(ApplicationActionBaseView):
-    def post(self, request, pk, new_status):
-        if new_status not in dict(Application.Status.choices):
-            raise Http404()
+class ApplicationQuickAddView(LoginRequiredMixin, View):
+    def post(self, request):
+        payload = request.POST
+        if request.content_type and "application/json" in request.content_type:
+            try:
+                payload = json.loads(request.body.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                return JsonResponse({"ok": False, "error": "Invalid JSON payload."}, status=400)
 
-        application = self.get_object(pk)
-        application.status = new_status
-        application.save()
-        messages.success(request, "Status updated.")
-        return HttpResponseRedirect(reverse("tracker:application_list"))
+        company = (payload.get("company") or "").strip()
+        title = (payload.get("title") or "").strip()
+        location = (payload.get("location") or "").strip()
+        if not company or not title:
+            return JsonResponse(
+                {"ok": False, "error": "Company and role are required."},
+                status=400,
+            )
 
-
-class ApplicationStatusSetView(ApplicationActionBaseView):
-    def post(self, request, pk):
-        new_status = request.POST.get("status")
-        if new_status not in dict(Application.Status.choices):
-            raise Http404()
-
-        application = self.get_object(pk)
-        application.status = new_status
-        application.save()
-        messages.success(request, "Status updated.")
-        return HttpResponseRedirect(reverse("tracker:application_list"))
-
-
-class ApplicationFollowUpBumpView(ApplicationActionBaseView):
-    def post(self, request, pk, days=None):
-        application = self.get_object(pk)
-        days_value = days if days is not None else request.POST.get("days")
-        try:
-            bump_days = int(days_value)
-        except (TypeError, ValueError):
-            raise Http404()
-
-        bump_by = timedelta(days=bump_days)
-        if application.follow_up_at:
-            application.follow_up_at = application.follow_up_at + bump_by
-        else:
-            application.follow_up_at = timezone.now() + bump_by
-        application.save(update_fields=["follow_up_at", "updated_at"])
-        messages.success(request, f"Follow-up bumped by {bump_days} days.")
-        return HttpResponseRedirect(reverse("tracker:application_list"))
+        job = JobLead.objects.create(
+            company=company,
+            title=title,
+            location=location,
+            owner=request.user,
+        )
+        application = Application.objects.create(
+            job=job,
+            status=Application.Status.WISHLIST,
+            location_text=location,
+            owner=request.user,
+        )
+        return JsonResponse({"ok": True, "id": application.pk})
 
 
-class ApplicationFollowUpSetView(ApplicationActionBaseView):
-    def post(self, request, pk):
-        application = self.get_object(pk)
-        raw_dt = request.POST.get("follow_up_at")
-        parsed = dateparse.parse_datetime(raw_dt) if raw_dt else None
-        if parsed and timezone.is_naive(parsed):
-            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
-
-        application.follow_up_at = parsed
-        application.save(update_fields=["follow_up_at", "updated_at"])
-        messages.success(request, "Follow-up updated.")
-        return HttpResponseRedirect(reverse("tracker:application_list"))
-
-
-class ApplicationDrawerView(LoginRequiredMixin, DetailView):
+class ApplicationQuickView(LoginRequiredMixin, DetailView):
     model = Application
-    template_name = "tracker/partials/application_drawer.html"
+    template_name = "tracker/partials/application_quick.html"
     context_object_name = "application"
 
     def get_queryset(self):
@@ -239,8 +386,8 @@ class ApplicationDrawerView(LoginRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["querystring"] = self.request.GET.urlencode()
         context["status_choices"] = Application.Status.choices
+        context["today"] = timezone.localdate()
         return context
 
     def render_to_response(self, context, **response_kwargs):
@@ -249,7 +396,33 @@ class ApplicationDrawerView(LoginRequiredMixin, DetailView):
         return response
 
 
-class ApplicationQuickUpdateView(ApplicationActionBaseView):
+class ApplicationEditView(LoginRequiredMixin, DetailView):
+    model = Application
+    template_name = "tracker/partials/application_edit_modal.html"
+    context_object_name = "application"
+
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related("job")
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(owner=self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["status_choices"] = Application.Status.choices
+        context["followups"] = self.object.followups.order_by("due_on", "created_at")
+        context["today"] = timezone.localdate()
+        return context
+
+    def render_to_response(self, context, **response_kwargs):
+        response = super().render_to_response(context, **response_kwargs)
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class ApplicationPatchView(ApplicationActionBaseView):
+    http_method_names = ["patch", "post"]
+
     def _get_payload(self, request):
         if request.content_type and "application/json" in request.content_type:
             try:
@@ -258,113 +431,369 @@ class ApplicationQuickUpdateView(ApplicationActionBaseView):
                 return None
         return request.POST
 
-    def _build_followup_at(self, target_date, hour, minute):
-        naive = datetime.combine(target_date, time(hour=hour, minute=minute))
-        return timezone.make_aware(naive, timezone.get_current_timezone())
+    def _parse_bool(self, value):
+        return str(value).lower() in {"1", "true", "yes", "on"}
 
-    def _format_dt(self, value):
-        if not value:
-            return {"display": "—", "value": ""}
+    def _response_error(self, message, field_errors=None, status=400):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": message,
+                "field_errors": field_errors or {},
+            },
+            status=status,
+        )
 
-        local_value = timezone.localtime(value)
-        return {
-            "display": local_value.strftime("%b %d, %Y %H:%M"),
-            "value": local_value.strftime("%Y-%m-%dT%H:%M"),
-        }
-
-    def _followup_from_preset(self, preset, now):
-        today = now.date()
-        if preset == "today":
-            target = self._build_followup_at(today, 18, 0)
-            if now >= target:
-                return self._build_followup_at(today + timedelta(days=1), 10, 0)
-            return target
-        if preset == "tomorrow":
-            return self._build_followup_at(today + timedelta(days=1), 10, 0)
-        if preset == "next_week":
-            return self._build_followup_at(today + timedelta(days=7), 10, 0)
-        if preset == "two_weeks":
-            return self._build_followup_at(today + timedelta(days=14), 10, 0)
-        return None
+    def patch(self, request, pk):
+        return self._handle(request, pk)
 
     def post(self, request, pk):
+        return self._handle(request, pk)
+
+    def _handle(self, request, pk):
         application = self.get_object(pk)
         payload = self._get_payload(request)
         if payload is None:
-            return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+            return self._response_error("Invalid JSON payload.")
 
-        new_status = payload.get("status")
-        notes = payload.get("notes") if "notes" in payload else None
+        field_errors = {}
+        updates = {}
+        job_updates = {}
 
-        followup_payload = payload.get("followup")
-        followup_preset = None
-        followup_date = None
-        raw_follow_up = None
-        clear_follow_up = None
-
-        if isinstance(followup_payload, dict):
-            followup_preset = followup_payload.get("preset")
-            followup_date = followup_payload.get("date")
-        else:
-            followup_preset = payload.get("followup_preset") or payload.get("follow_up_preset")
-            raw_follow_up = payload.get("follow_up_at")
-            clear_follow_up = payload.get("clear_follow_up")
-
-        if new_status:
+        if "status" in payload:
+            new_status = payload.get("status")
             if new_status not in dict(Application.Status.choices):
-                return JsonResponse({"error": "Invalid status."}, status=400)
-            application.status = new_status
+                field_errors["status"] = "Select a valid status."
+            else:
+                terminal_statuses = {Application.Status.ACCEPTED, Application.Status.REJECTED}
+                force = self._parse_bool(payload.get("force") or request.GET.get("force"))
+                if (
+                    application.status in terminal_statuses
+                    and new_status not in terminal_statuses
+                    and not (request.user.is_staff and force)
+                ):
+                    return self._response_error("Status is locked in a terminal state.")
+                updates["status"] = new_status
 
-        follow_up_updated = False
-        follow_up_value = None
+        if "next_action" in payload:
+            updates["next_action"] = payload.get("next_action") or ""
 
-        if followup_preset == "clear" or clear_follow_up:
-            follow_up_updated = True
-            follow_up_value = None
-        elif followup_preset == "date":
-            parsed_date = dateparse.parse_date(followup_date or "")
-            if not parsed_date:
-                return JsonResponse({"error": "Invalid follow-up date."}, status=400)
-            follow_up_value = self._build_followup_at(parsed_date, 10, 0)
-            follow_up_updated = True
-        elif raw_follow_up:
-            parsed = dateparse.parse_datetime(raw_follow_up)
-            if not parsed:
-                return JsonResponse({"error": "Invalid follow-up datetime."}, status=400)
-            if timezone.is_naive(parsed):
-                parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
-            follow_up_value = timezone.localtime(parsed)
-            follow_up_updated = True
-        elif followup_preset:
-            now = timezone.localtime(timezone.now())
-            follow_up_value = self._followup_from_preset(followup_preset, now)
-            if not follow_up_value:
-                return JsonResponse({"error": "Invalid follow-up preset."}, status=400)
-            follow_up_updated = True
+        if "notes" in payload:
+            updates["notes"] = payload.get("notes") or ""
 
-        if notes is not None:
-            application.notes = notes
+        if "follow_up_on" in payload:
+            raw_date = payload.get("follow_up_on")
+            if raw_date in ("", None):
+                updates["follow_up_on"] = None
+            else:
+                parsed = dateparse.parse_date(raw_date)
+                if not parsed:
+                    field_errors["follow_up_on"] = "Enter a valid date."
+                else:
+                    updates["follow_up_on"] = parsed
 
-        if not new_status and not follow_up_updated and notes is None:
-            return JsonResponse({"error": "No updates supplied."}, status=400)
+        if "job_url" in payload:
+            updates["job_url"] = payload.get("job_url") or ""
+            job_updates["job_url"] = updates["job_url"]
 
-        if follow_up_updated:
-            application.follow_up_at = follow_up_value
-            if follow_up_value is None:
-                application._skip_follow_up_auto = True
+        if "source" in payload:
+            updates["source"] = payload.get("source") or ""
 
-        application.save()
+        if "compensation_text" in payload:
+            updates["compensation_text"] = payload.get("compensation_text") or ""
 
-        follow_up = self._format_dt(application.follow_up_at)
-        applied_at = self._format_dt(application.applied_at)
+        if "location_text" in payload:
+            updates["location_text"] = payload.get("location_text") or ""
+            job_updates["location"] = updates["location_text"]
+
+        if "location" in payload:
+            location_value = payload.get("location") or ""
+            job_updates["location"] = location_value
+            updates["location_text"] = location_value
+
+        if "company" in payload:
+            company_value = (payload.get("company") or "").strip()
+            if not company_value:
+                field_errors["company"] = "Company is required."
+            else:
+                job_updates["company"] = company_value
+
+        if "title" in payload:
+            title_value = (payload.get("title") or "").strip()
+            if not title_value:
+                field_errors["title"] = "Role is required."
+            else:
+                job_updates["title"] = title_value
+
+        if field_errors:
+            return self._response_error("Validation error.", field_errors=field_errors)
+
+        if not updates and not job_updates:
+            return self._response_error("No updates supplied.")
+
+        if job_updates:
+            for field, value in job_updates.items():
+                setattr(application.job, field, value)
+            application.job.save(update_fields=list(job_updates.keys()))
+
+        if updates:
+            for field, value in updates.items():
+                setattr(application, field, value)
+            application.save()
+        elif job_updates:
+            application.save(update_fields=["updated_at"])
+
+        follow_up_display = application.follow_up_on.strftime("%b %d, %Y") if application.follow_up_on else "—"
+        job_url = application.job_url or application.job.job_url or ""
+        location_text = application.location_text or application.job.location or ""
         payload = {
             "id": application.pk,
             "status": application.status,
             "status_label": application.get_status_display(),
-            "follow_up_display": follow_up["display"],
-            "follow_up_value": follow_up["value"],
-            "applied_display": applied_at["display"],
-            "applied_value": applied_at["value"],
+            "next_action": application.next_action or "",
+            "follow_up_on": application.follow_up_on.isoformat() if application.follow_up_on else "",
+            "follow_up_display": follow_up_display,
             "notes": application.notes or "",
+            "company": application.job.company,
+            "title": application.job.title,
+            "job_url": job_url,
+            "location_text": location_text,
+            "source": application.source or "",
+            "compensation_text": application.compensation_text or "",
         }
-        return JsonResponse(payload)
+        return JsonResponse(
+            {
+                "ok": True,
+                "application": payload,
+                "saved_at": timezone.now().isoformat(),
+            }
+        )
+
+
+class ApplicationFollowUpCreateView(ApplicationActionBaseView):
+    def post(self, request, pk):
+        application = self.get_object(pk)
+        payload = request.POST
+        if request.content_type and "application/json" in request.content_type:
+            try:
+                payload = json.loads(request.body.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                return JsonResponse({"ok": False, "error": "Invalid JSON payload."}, status=400)
+
+        due_on_raw = payload.get("due_on")
+        due_on = dateparse.parse_date(due_on_raw or "")
+        if not due_on:
+            return JsonResponse({"ok": False, "error": "Enter a valid due date."}, status=400)
+
+        note = payload.get("note") or ""
+        followup = FollowUp.objects.create(application=application, due_on=due_on, note=note)
+        return JsonResponse(
+            {
+                "ok": True,
+                "followup": {
+                    "id": followup.pk,
+                    "due_on": followup.due_on.isoformat(),
+                    "note": followup.note or "",
+                    "is_completed": followup.is_completed,
+                },
+            }
+        )
+
+
+class FollowUpUpdateView(LoginRequiredMixin, View):
+    def get_queryset(self):
+        queryset = FollowUp.objects.select_related("application__job")
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(application__owner=self.request.user)
+
+    def patch(self, request, pk):
+        return self._handle(request, pk)
+
+    def post(self, request, pk):
+        return self._handle(request, pk)
+
+    def _handle(self, request, pk):
+        followup = get_object_or_404(self.get_queryset(), pk=pk)
+        payload = request.POST
+        if request.content_type and "application/json" in request.content_type:
+            try:
+                payload = json.loads(request.body.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                return JsonResponse({"ok": False, "error": "Invalid JSON payload."}, status=400)
+
+        updates = {}
+        if "due_on" in payload:
+            due_on = dateparse.parse_date(payload.get("due_on") or "")
+            if not due_on:
+                return JsonResponse({"ok": False, "error": "Enter a valid due date."}, status=400)
+            updates["due_on"] = due_on
+
+        if "note" in payload:
+            updates["note"] = payload.get("note") or ""
+
+        if "is_completed" in payload:
+            is_completed = str(payload.get("is_completed")).lower() in {"1", "true", "yes", "on"}
+            updates["is_completed"] = is_completed
+            updates["completed_at"] = timezone.now() if is_completed else None
+
+        if not updates:
+            return JsonResponse({"ok": False, "error": "No updates supplied."}, status=400)
+
+        for field, value in updates.items():
+            setattr(followup, field, value)
+        followup.save()
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "followup": {
+                    "id": followup.pk,
+                    "due_on": followup.due_on.isoformat(),
+                    "note": followup.note or "",
+                    "is_completed": followup.is_completed,
+                    "completed_at": followup.completed_at.isoformat() if followup.completed_at else "",
+                },
+            }
+        )
+
+
+class BoardView(LoginRequiredMixin, TemplateView):
+    template_name = "tracker/board.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        applications = Application.objects.select_related("job")
+        if not self.request.user.is_superuser:
+            applications = applications.filter(owner=self.request.user)
+
+        status_columns = []
+        for code, label in Application.Status.choices:
+            status_columns.append(
+                {
+                    "code": code,
+                    "label": label,
+                    "applications": applications.filter(status=code).order_by("-updated_at"),
+                }
+            )
+        context["status_columns"] = status_columns
+        context["status_choices"] = Application.Status.choices
+        return context
+
+
+class FollowUpsListView(LoginRequiredMixin, TemplateView):
+    template_name = "tracker/followups_list.html"
+
+    def _build_items(self, apps, followups):
+        items = []
+        for application in apps:
+            items.append(
+                {
+                    "type": "application",
+                    "due_on": application.follow_up_on,
+                    "application": application,
+                }
+            )
+        for followup in followups:
+            items.append(
+                {
+                    "type": "followup",
+                    "due_on": followup.due_on,
+                    "application": followup.application,
+                    "followup": followup,
+                }
+            )
+        return sorted(items, key=lambda item: (item["due_on"] or timezone.localdate()))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        today = timezone.localdate()
+        week_end = today + timedelta(days=7)
+        terminal_statuses = [Application.Status.ACCEPTED, Application.Status.REJECTED]
+
+        applications = Application.objects.select_related("job")
+        followups = FollowUp.objects.select_related("application__job").filter(is_completed=False)
+        if not self.request.user.is_superuser:
+            applications = applications.filter(owner=self.request.user)
+            followups = followups.filter(application__owner=self.request.user)
+
+        applications = applications.exclude(status__in=terminal_statuses)
+
+        today_items = self._build_items(
+            applications.filter(follow_up_on=today),
+            followups.filter(due_on=today),
+        )
+        overdue_items = self._build_items(
+            applications.filter(follow_up_on__lt=today),
+            followups.filter(due_on__lt=today),
+        )
+        week_items = self._build_items(
+            applications.filter(follow_up_on__gt=today, follow_up_on__lte=week_end),
+            followups.filter(due_on__gt=today, due_on__lte=week_end),
+        )
+
+        context.update(
+            {
+                "today": today,
+                "week_end": week_end,
+                "today_items": today_items,
+                "overdue_items": overdue_items,
+                "week_items": week_items,
+            }
+        )
+        return context
+
+
+class ProfileView(LoginRequiredMixin, FormView):
+    template_name = "tracker/profile.html"
+
+    def _get_tab(self):
+        tab = self.request.GET.get("tab") or self.request.POST.get("tab") or "profile"
+        if tab not in {"profile", "settings"}:
+            tab = "profile"
+        return tab
+
+    def get_form_class(self):
+        if self._get_tab() == "settings":
+            return UserProfileSettingsForm
+        return UserProfileIdentityForm
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        profile, _ = UserProfile.objects.get_or_create(user=self.request.user)
+        kwargs["instance"] = profile
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["tab"] = self._get_tab()
+        return context
+
+    def get_success_url(self):
+        return f"{reverse_lazy('tracker:profile')}?tab={self._get_tab()}"
+
+    def form_valid(self, form):
+        form.save()
+        if self._get_tab() == "settings":
+            messages.success(self.request, "Settings updated.")
+        else:
+            messages.success(self.request, "Profile updated.")
+        return super().form_valid(form)
+
+
+class ProfileQuickUpdateView(LoginRequiredMixin, View):
+    def post(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        enabled = str(request.POST.get("email_reminders_enabled", "")).lower() in {
+            "1",
+            "true",
+            "on",
+            "yes",
+        }
+        profile.email_reminders_enabled = enabled
+        profile.save(update_fields=["email_reminders_enabled", "updated_at"])
+
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"ok": True, "email_reminders_enabled": enabled})
+
+        return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/profile/?tab=settings"))
