@@ -624,6 +624,11 @@ body.app-root {
     font-size: var(--fs-sm);
     color: var(--badge-text);
 }
+.badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-1);
+}
 
 .badge--danger {
     background: rgba(180, 35, 24, 0.12);
@@ -884,6 +889,10 @@ html.sidebar-collapsed .sidebar .btn.full-width {
 .app-row.is-selected { background: var(--active-bg); }
 .app-row:focus-within { outline: 2px solid var(--focus); outline-offset: -2px; }
 .col-position { width: 40%; }
+.col-source { width: 16%; }
+.col-work-mode { width: 16%; }
+.col-flags { width: 14%; }
+.col-discovered { width: 14%; }
 
 .kanban {
     display: flex;

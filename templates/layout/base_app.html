@@ -82,6 +82,9 @@
                     <a class="sidebar-link {% if request.resolver_match.url_name == 'application_list' %}active{% endif %}" href="{% url 'tracker:application_list' %}">
                         <span class="nav-text">Applications</span>
                     </a>
+                    <a class="sidebar-link {% if request.resolver_match.url_name == 'lead_list' %}active{% endif %}" href="{% url 'tracker:lead_list' %}">
+                        <span class="nav-text">Leads</span>
+                    </a>
                     <a class="sidebar-link {% if request.resolver_match.url_name == 'profile' %}active{% endif %}" href="{% url 'tracker:profile' %}">
                         <span class="nav-text">Profile</span>
                     </a>

@@ -183,11 +183,18 @@ def main():
             page.screenshot(path=str(dashboard_path), full_page=True)
             screenshot_paths.append(dashboard_path)
 
-            page.goto(f"{base_url}/applications/new/", wait_until="networkidle")
-            page.wait_for_selector("h1", timeout=5000)
-            new_app_path = out_dir / "03-new-application.png"
-            page.screenshot(path=str(new_app_path), full_page=True)
-            screenshot_paths.append(new_app_path)
+            if feature_slug == "milestone-3":
+                page.goto(f"{base_url}/leads/", wait_until="networkidle")
+                page.wait_for_selector("h1", timeout=5000)
+                leads_path = out_dir / "03-leads.png"
+                page.screenshot(path=str(leads_path), full_page=True)
+                screenshot_paths.append(leads_path)
+            else:
+                page.goto(f"{base_url}/applications/new/", wait_until="networkidle")
+                page.wait_for_selector("h1", timeout=5000)
+                new_app_path = out_dir / "03-new-application.png"
+                page.screenshot(path=str(new_app_path), full_page=True)
+                screenshot_paths.append(new_app_path)
 
             browser.close()
 

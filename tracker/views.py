@@ -6,7 +6,8 @@ from urllib.parse import urlencode
 from django.contrib import messages
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import F, Q
+from django.db import IntegrityError, transaction
+from django.db.models import Exists, F, OuterRef, Q
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse_lazy
@@ -220,6 +221,88 @@ class ApplicationListView(LoginRequiredMixin, ListView):
             context["today_items"] = []
             context["overdue_items"] = []
 
+        return context
+
+
+class LeadListView(LoginRequiredMixin, ListView):
+    """Inbox list for job leads with SSR filters."""
+
+    model = JobLead
+    template_name = "tracker/lead_list.html"
+    context_object_name = "leads"
+
+    def get_queryset(self):
+        user = self.request.user
+        has_app_query = Application.objects.filter(job_id=OuterRef("pk"), owner=user)
+        queryset = JobLead.objects.filter(owner=user).annotate(has_app=Exists(has_app_query))
+
+        search_query = self.request.GET.get("q", "").strip()
+        if search_query:
+            queryset = queryset.filter(
+                Q(title__icontains=search_query) | Q(company__icontains=search_query)
+            )
+
+        source_filter = self.request.GET.get("source")
+        if source_filter:
+            queryset = queryset.filter(source=source_filter)
+
+        work_mode_filter = self.request.GET.get("work_mode")
+        if work_mode_filter:
+            queryset = queryset.filter(work_mode=work_mode_filter)
+
+        scam_filter = self.request.GET.get("scam")
+        if scam_filter in {"0", "1"}:
+            queryset = queryset.filter(is_scam_suspected=scam_filter == "1")
+
+        has_app_filter = self.request.GET.get("has_app")
+        if has_app_filter in {"0", "1"}:
+            queryset = queryset.filter(has_app=has_app_filter == "1")
+
+        archived_filter = self.request.GET.get("archived")
+        if archived_filter in {"0", "1"}:
+            queryset = queryset.filter(is_archived=archived_filter == "1")
+        else:
+            queryset = queryset.filter(is_archived=False)
+
+        return queryset.order_by("-discovered_at", "-updated_at")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        search_query = self.request.GET.get("q", "").strip()
+        source_filter = self.request.GET.get("source", "")
+        work_mode_filter = self.request.GET.get("work_mode", "")
+        scam_filter = self.request.GET.get("scam", "")
+        has_app_filter = self.request.GET.get("has_app", "")
+        archived_filter = self.request.GET.get("archived", "")
+        if archived_filter not in {"0", "1"}:
+            archived_filter = "0"
+
+        filters = {}
+        for key, value in (
+            ("q", search_query),
+            ("source", source_filter),
+            ("work_mode", work_mode_filter),
+            ("scam", scam_filter),
+            ("has_app", has_app_filter),
+        ):
+            if value:
+                filters[key] = value
+        if archived_filter:
+            filters["archived"] = archived_filter
+
+        context.update(
+            {
+                "search_query": search_query,
+                "source_filter": source_filter,
+                "work_mode_filter": work_mode_filter,
+                "scam_filter": scam_filter,
+                "has_app_filter": has_app_filter,
+                "archived_filter": archived_filter,
+                "filters_query": urlencode(filters),
+                "source_choices": JobLead.Source.choices,
+                "work_mode_choices": JobLead.WorkMode.choices,
+            }
+        )
         return context
 
 
@@ -568,6 +651,226 @@ class ApplicationPatchView(ApplicationActionBaseView):
                 "saved_at": timezone.now().isoformat(),
             }
         )
+
+
+class LeadActionBaseView(LoginRequiredMixin, View):
+    def get_queryset(self):
+        return JobLead.objects.filter(owner=self.request.user)
+
+    def get_object(self, pk):
+        return get_object_or_404(self.get_queryset(), pk=pk)
+
+
+class LeadQuickView(LoginRequiredMixin, DetailView):
+    model = JobLead
+    template_name = "tracker/partials/lead_quick.html"
+    context_object_name = "lead"
+
+    def get_queryset(self):
+        return JobLead.objects.filter(owner=self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["application"] = Application.objects.filter(
+            job=self.object,
+            owner=self.request.user,
+        ).first()
+        context["source_choices"] = JobLead.Source.choices
+        context["work_mode_choices"] = JobLead.WorkMode.choices
+        return context
+
+    def render_to_response(self, context, **response_kwargs):
+        response = super().render_to_response(context, **response_kwargs)
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class LeadEditView(LoginRequiredMixin, DetailView):
+    model = JobLead
+    template_name = "tracker/partials/lead_edit_modal.html"
+    context_object_name = "lead"
+
+    def get_queryset(self):
+        return JobLead.objects.filter(owner=self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["application"] = Application.objects.filter(
+            job=self.object,
+            owner=self.request.user,
+        ).first()
+        context["source_choices"] = JobLead.Source.choices
+        context["work_mode_choices"] = JobLead.WorkMode.choices
+        return context
+
+    def render_to_response(self, context, **response_kwargs):
+        response = super().render_to_response(context, **response_kwargs)
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class LeadPatchView(LeadActionBaseView):
+    http_method_names = ["patch", "post"]
+
+    def _get_payload(self, request):
+        if request.content_type and "application/json" in request.content_type:
+            try:
+                return json.loads(request.body.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                return None
+        return request.POST
+
+    def _parse_bool(self, value):
+        if isinstance(value, bool):
+            return value
+        return str(value).lower() in {"1", "true", "yes", "on"}
+
+    def _response_error(self, message, field_errors=None, status=400):
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": message,
+                "field_errors": field_errors or {},
+            },
+            status=status,
+        )
+
+    def patch(self, request, pk):
+        return self._handle(request, pk)
+
+    def post(self, request, pk):
+        return self._handle(request, pk)
+
+    def _handle(self, request, pk):
+        lead = self.get_object(pk)
+        payload = self._get_payload(request)
+        if payload is None:
+            return self._response_error("Invalid JSON payload.")
+
+        field_errors = {}
+        updates = {}
+
+        if "title" in payload:
+            title_value = (payload.get("title") or "").strip()
+            if not title_value:
+                field_errors["title"] = "Role is required."
+            else:
+                updates["title"] = title_value
+
+        if "company" in payload:
+            company_value = (payload.get("company") or "").strip()
+            if not company_value:
+                field_errors["company"] = "Company is required."
+            else:
+                updates["company"] = company_value
+
+        if "location" in payload:
+            updates["location"] = payload.get("location") or ""
+
+        if "work_mode" in payload:
+            work_mode_value = payload.get("work_mode") or ""
+            if work_mode_value not in dict(JobLead.WorkMode.choices):
+                field_errors["work_mode"] = "Select a valid work mode."
+            else:
+                updates["work_mode"] = work_mode_value
+
+        if "source" in payload:
+            source_value = payload.get("source") or ""
+            if source_value not in dict(JobLead.Source.choices):
+                field_errors["source"] = "Select a valid source."
+            else:
+                updates["source"] = source_value
+
+        if "job_url" in payload:
+            updates["job_url"] = payload.get("job_url") or ""
+
+        if "jd_text" in payload:
+            updates["jd_text"] = payload.get("jd_text") or ""
+
+        if "notes" in payload:
+            updates["notes"] = payload.get("notes") or ""
+
+        if "is_scam_suspected" in payload:
+            is_scam = self._parse_bool(payload.get("is_scam_suspected"))
+            updates["is_scam_suspected"] = is_scam
+            if not is_scam and "scam_reasons" not in payload:
+                updates["scam_reasons"] = ""
+
+        if "scam_reasons" in payload:
+            updates["scam_reasons"] = payload.get("scam_reasons") or ""
+
+        if "is_archived" in payload:
+            is_archived = self._parse_bool(payload.get("is_archived"))
+            updates["is_archived"] = is_archived
+            updates["archived_at"] = timezone.now() if is_archived else None
+
+        if field_errors:
+            return self._response_error("Validation error.", field_errors=field_errors)
+
+        if not updates:
+            return self._response_error("No updates supplied.")
+
+        for field, value in updates.items():
+            setattr(lead, field, value)
+        lead.save()
+
+        payload = {
+            "id": lead.pk,
+            "title": lead.title,
+            "company": lead.company,
+            "location": lead.location or "",
+            "location_text": lead.location or "",
+            "job_url": lead.job_url or "",
+            "source": lead.source,
+            "source_label": lead.get_source_display(),
+            "work_mode": lead.work_mode,
+            "work_mode_label": lead.get_work_mode_display(),
+            "jd_text": lead.jd_text or "",
+            "notes": lead.notes or "",
+            "is_scam_suspected": lead.is_scam_suspected,
+            "scam_reasons": lead.scam_reasons or "",
+            "is_archived": lead.is_archived,
+        }
+        return JsonResponse(
+            {
+                "ok": True,
+                "application": payload,
+                "saved_at": timezone.now().isoformat(),
+            }
+        )
+
+
+class LeadConvertView(LeadActionBaseView):
+    def _wants_json(self, request):
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return True
+        if request.content_type and "application/json" in request.content_type:
+            return True
+        return "application/json" in request.headers.get("accept", "")
+
+    def post(self, request, pk):
+        lead = self.get_object(pk)
+        with transaction.atomic():
+            application = Application.objects.filter(job=lead, owner=request.user).first()
+            if application is None:
+                try:
+                    application = Application.objects.create(
+                        job=lead,
+                        owner=request.user,
+                        status=Application.Status.WISHLIST,
+                        job_url=lead.job_url or "",
+                        location_text=lead.location or "",
+                        source=lead.source or "",
+                    )
+                except IntegrityError:
+                    application = Application.objects.get(job=lead, owner=request.user)
+
+        redirect_url = f"{reverse_lazy('tracker:application_list')}?selected={application.pk}"
+        if self._wants_json(request):
+            return JsonResponse({"application_id": application.pk, "redirect_url": redirect_url})
+
+        messages.success(request, "Lead converted to an application.")
+        return HttpResponseRedirect(redirect_url)
 
 
 class ApplicationFollowUpCreateView(ApplicationActionBaseView):

@@ -42,6 +42,7 @@ class LayoutTests(BaseTestCase):
         response = self.client.get(reverse("tracker:application_list"))
 
         self.assertContains(response, "Applications")
+        self.assertContains(response, "Leads")
         self.assertContains(response, "Profile")
 
     def test_login_page_has_no_sidebar(self):
@@ -126,6 +127,45 @@ class OwnershipTests(BaseTestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class LeadOwnershipTests(BaseTestCase):
+    def setUp(self):
+        self.owner = self.create_user("lead_owner")
+        self.other_user = self.create_user("lead_other")
+        self.lead = JobLead.objects.create(company="Acme", title="Engineer", owner=self.owner)
+
+    def test_lead_quick_blocks_non_owner(self):
+        self.client.login(username="lead_other", password="password123")
+
+        response = self.client.get(reverse("tracker:lead_quick", args=[self.lead.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_lead_edit_blocks_non_owner(self):
+        self.client.login(username="lead_other", password="password123")
+
+        response = self.client.get(reverse("tracker:lead_edit", args=[self.lead.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_lead_patch_blocks_non_owner(self):
+        self.client.login(username="lead_other", password="password123")
+
+        response = self.client.patch(
+            reverse("tracker:lead_patch", args=[self.lead.pk]),
+            data=json.dumps({"notes": "Nope"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_lead_convert_blocks_non_owner(self):
+        self.client.login(username="lead_other", password="password123")
+
+        response = self.client.post(reverse("tracker:lead_convert", args=[self.lead.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+
 class ApplicationFilterTests(BaseTestCase):
     def setUp(self):
         self.user = self.create_user("alice")
@@ -199,6 +239,96 @@ class ApplicationFilterTests(BaseTestCase):
         )
 
         self.assertContains(response, "Clear filters")
+
+
+class LeadFilterTests(BaseTestCase):
+    def setUp(self):
+        self.user = self.create_user("lead_filters")
+        self.client.login(username="lead_filters", password="password123")
+        self.lead_unconverted = JobLead.objects.create(
+            company="Acme Corp",
+            title="Engineer",
+            owner=self.user,
+        )
+        self.lead_converted = JobLead.objects.create(
+            company="Beta LLC",
+            title="Designer",
+            owner=self.user,
+        )
+        self.lead_scam = JobLead.objects.create(
+            company="Scam Inc",
+            title="Too Good",
+            owner=self.user,
+            is_scam_suspected=True,
+        )
+        self.lead_archived = JobLead.objects.create(
+            company="Old Lead",
+            title="Archive Me",
+            owner=self.user,
+            is_archived=True,
+        )
+        Application.objects.create(job=self.lead_converted, owner=self.user)
+
+    def test_has_app_filter(self):
+        response = self.client.get(reverse("tracker:lead_list"), {"has_app": "1"})
+        lead_ids = {lead.pk for lead in response.context["leads"]}
+
+        self.assertEqual(lead_ids, {self.lead_converted.pk})
+
+        response = self.client.get(reverse("tracker:lead_list"), {"has_app": "0"})
+        lead_ids = {lead.pk for lead in response.context["leads"]}
+
+        self.assertEqual(lead_ids, {self.lead_unconverted.pk, self.lead_scam.pk})
+
+    def test_scam_filter(self):
+        response = self.client.get(reverse("tracker:lead_list"), {"scam": "1"})
+        lead_ids = {lead.pk for lead in response.context["leads"]}
+
+        self.assertEqual(lead_ids, {self.lead_scam.pk})
+
+    def test_archived_filter(self):
+        response = self.client.get(reverse("tracker:lead_list"), {"archived": "1"})
+        lead_ids = {lead.pk for lead in response.context["leads"]}
+
+        self.assertEqual(lead_ids, {self.lead_archived.pk})
+
+
+class LeadConversionTests(BaseTestCase):
+    def test_convert_is_idempotent(self):
+        user = self.create_user("lead_convert")
+        lead = JobLead.objects.create(company="Acme", title="Engineer", owner=user)
+        self.client.login(username="lead_convert", password="password123")
+
+        response = self.client.post(reverse("tracker:lead_convert", args=[lead.pk]))
+
+        self.assertEqual(response.status_code, 302)
+        application = Application.objects.get(job=lead, owner=user)
+        self.assertIn(f"selected={application.pk}", response["Location"])
+
+        response = self.client.post(reverse("tracker:lead_convert", args=[lead.pk]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Application.objects.filter(job=lead, owner=user).count(), 1)
+        self.assertIn(f"selected={application.pk}", response["Location"])
+
+
+class ApplicationSelectedParamTests(BaseTestCase):
+    def test_selected_param_highlights_row(self):
+        user = self.create_user("sel")
+        application = self.create_application(owner=user, company="Acme Co")
+        self.client.login(username="sel", password="password123")
+
+        response = self.client.get(
+            reverse("tracker:application_list"),
+            {"selected": application.pk},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f'data-app-id="{application.pk}"',
+        )
+        self.assertContains(response, "is-selected")
 
 
 class ExportTests(BaseTestCase):

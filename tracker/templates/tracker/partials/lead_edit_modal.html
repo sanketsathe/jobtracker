@@ -1,0 +1,129 @@
+<div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title-{{ lead.pk }}">
+    <div class="modal-header">
+        <div class="modal-headings">
+            <h2 id="modal-title-{{ lead.pk }}" class="modal-title" data-app-title>{{ lead.title|default:lead.company }}</h2>
+            <div class="modal-subtitle text-subtle">
+                <span data-app-company>{{ lead.company }}</span>
+                {% if lead.location %}
+                    · <span data-app-location>{{ lead.location }}</span>
+                {% endif %}
+                <span data-app-link-wrap {% if not lead.job_url %}hidden{% endif %}>
+                    · <a class="link-muted" data-app-link href="{{ lead.job_url }}" target="_blank" rel="noopener">View posting</a>
+                </span>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <span class="save-indicator" data-save-status aria-hidden="true"></span>
+            <span class="save-text" data-save-text>Not saved yet</span>
+            <button type="button" class="icon-btn icon-btn--ghost" data-modal-close aria-label="Close">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M6 6l12 12" />
+                    <path d="M18 6l-12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="modal-body" data-app-id="{{ lead.pk }}" data-patch-url="{% url 'tracker:lead_patch' lead.pk %}">
+        <section class="modal-section">
+            <div class="modal-section-title">Lead details</div>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="modal-company-{{ lead.pk }}">Company</label>
+                    <input id="modal-company-{{ lead.pk }}" name="company" value="{{ lead.company }}" data-autosave="company">
+                    <div class="form-error" data-field-error="company"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-title-field-{{ lead.pk }}">Role</label>
+                    <input id="modal-title-field-{{ lead.pk }}" name="title" value="{{ lead.title }}" data-autosave="title">
+                    <div class="form-error" data-field-error="title"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-location-{{ lead.pk }}">Location</label>
+                    <input id="modal-location-{{ lead.pk }}" name="location" value="{{ lead.location }}" data-autosave="location">
+                    <div class="form-error" data-field-error="location"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-job-url-{{ lead.pk }}">Job URL</label>
+                    <input id="modal-job-url-{{ lead.pk }}" type="url" name="job_url" value="{{ lead.job_url }}" data-autosave="job_url">
+                    <div class="form-error" data-field-error="job_url"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="modal-section">
+            <div class="modal-section-title">Source and work mode</div>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="modal-source-{{ lead.pk }}">Source</label>
+                    <select id="modal-source-{{ lead.pk }}" name="source" data-autosave="source">
+                        {% for value, label in source_choices %}
+                            <option value="{{ value }}" {% if value == lead.source %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-error" data-field-error="source"></div>
+                </div>
+                <div class="form-field">
+                    <label for="modal-work-mode-{{ lead.pk }}">Work mode</label>
+                    <select id="modal-work-mode-{{ lead.pk }}" name="work_mode" data-autosave="work_mode">
+                        {% for value, label in work_mode_choices %}
+                            <option value="{{ value }}" {% if value == lead.work_mode %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-error" data-field-error="work_mode"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="modal-section">
+            <div class="modal-section-title">Job description</div>
+            <textarea id="modal-jd-text-{{ lead.pk }}" name="jd_text" rows="6" data-autosave="jd_text">{{ lead.jd_text|default_if_none:"" }}</textarea>
+            <div class="form-error" data-field-error="jd_text"></div>
+        </section>
+
+        <section class="modal-section">
+            <div class="modal-section-title">Triage</div>
+            <div class="form-grid">
+                <div class="form-field">
+                    <label class="toggle">
+                        <input type="checkbox" name="is_scam_suspected" data-autosave="is_scam_suspected" {% if lead.is_scam_suspected %}checked{% endif %}>
+                        <span class="toggle-track" aria-hidden="true"></span>
+                        <span class="toggle-label">Scam suspected</span>
+                    </label>
+                    <div class="form-error" data-field-error="is_scam_suspected"></div>
+                </div>
+                <div class="form-field form-field--full">
+                    <label for="modal-scam-reasons-{{ lead.pk }}">Scam reasons</label>
+                    <textarea id="modal-scam-reasons-{{ lead.pk }}" name="scam_reasons" rows="3" data-autosave="scam_reasons">{{ lead.scam_reasons|default_if_none:"" }}</textarea>
+                    <div class="form-error" data-field-error="scam_reasons"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="modal-section">
+            <div class="modal-section-title">Notes</div>
+            <textarea id="modal-notes-{{ lead.pk }}" name="notes" rows="6" data-autosave="notes">{{ lead.notes|default_if_none:"" }}</textarea>
+            <div class="form-error" data-field-error="notes"></div>
+        </section>
+
+        <section class="modal-section">
+            <div class="modal-section-title">Actions</div>
+            <div class="actions-row">
+                {% if application %}
+                    <a class="btn" href="{% url 'tracker:application_list' %}?selected={{ application.pk }}">Open application</a>
+                {% else %}
+                    <form method="post" action="{% url 'tracker:lead_convert' lead.pk %}">
+                        {% csrf_token %}
+                        <button class="btn" type="submit">Convert to application</button>
+                    </form>
+                {% endif %}
+                <label class="toggle">
+                    <input type="checkbox" name="is_archived" data-autosave="is_archived" {% if lead.is_archived %}checked{% endif %}>
+                    <span class="toggle-track" aria-hidden="true"></span>
+                    <span class="toggle-label">Archived</span>
+                </label>
+            </div>
+            <div class="form-error" data-field-error="is_archived"></div>
+        </section>
+    </div>
+</div>

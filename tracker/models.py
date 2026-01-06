@@ -29,9 +29,12 @@ class JobLead(models.Model):
 
     job_url = models.URLField(max_length=500, blank=True)
     jd_text = models.TextField(blank=True)
+    notes = models.TextField(blank=True)
 
     is_scam_suspected = models.BooleanField(default=False)
     scam_reasons = models.TextField(blank=True)
+    is_archived = models.BooleanField(default=False)
+    archived_at = models.DateTimeField(null=True, blank=True)
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -82,6 +85,14 @@ class Application(models.Model):
 
     def __str__(self) -> str:
         return f"{self.job.company} - {self.job.title} ({self.status})"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job", "owner"],
+                name="unique_application_per_owner_job",
+            ),
+        ]
 
 
 class FollowUp(models.Model):

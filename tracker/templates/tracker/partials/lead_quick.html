@@ -1,0 +1,93 @@
+<div class="popover-card" data-app-id="{{ lead.pk }}" data-patch-url="{% url 'tracker:lead_patch' lead.pk %}" data-edit-url="{% url 'tracker:lead_edit' lead.pk %}">
+    <div class="popover-header">
+        <div>
+            <div class="popover-title" data-app-title>{{ lead.title|default:lead.company }}</div>
+            <div class="popover-subtitle text-subtle">
+                <span data-app-company>{{ lead.company }}</span>
+                {% if lead.location %}
+                    · <span data-app-location>{{ lead.location }}</span>
+                {% endif %}
+                <span data-app-link-wrap {% if not lead.job_url %}hidden{% endif %}>
+                    · <a class="link-muted" data-app-link href="{{ lead.job_url }}" target="_blank" rel="noopener">View posting</a>
+                </span>
+            </div>
+        </div>
+        <div class="popover-actions">
+            <span class="save-indicator" data-save-status aria-hidden="true"></span>
+            <button type="button" class="icon-btn icon-btn--ghost" data-open-editor aria-label="Maximize editor" title="Maximize">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M3 9V3h6" />
+                    <path d="M21 9V3h-6" />
+                    <path d="M3 15v6h6" />
+                    <path d="M21 15v6h-6" />
+                </svg>
+            </button>
+            <button type="button" class="icon-btn icon-btn--ghost" data-popover-close aria-label="Close">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M6 6l12 12" />
+                    <path d="M18 6l-12 12" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="popover-body">
+        <div class="form-field">
+            <label for="quick-source-{{ lead.pk }}">Source</label>
+            <select id="quick-source-{{ lead.pk }}" name="source" data-autosave="source">
+                {% for value, label in source_choices %}
+                    <option value="{{ value }}" {% if value == lead.source %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <div class="form-error" data-field-error="source"></div>
+        </div>
+        <div class="form-field">
+            <label for="quick-work-mode-{{ lead.pk }}">Work mode</label>
+            <select id="quick-work-mode-{{ lead.pk }}" name="work_mode" data-autosave="work_mode">
+                {% for value, label in work_mode_choices %}
+                    <option value="{{ value }}" {% if value == lead.work_mode %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <div class="form-error" data-field-error="work_mode"></div>
+        </div>
+        <div class="form-field">
+            <label class="toggle">
+                <input type="checkbox" name="is_scam_suspected" data-autosave="is_scam_suspected" {% if lead.is_scam_suspected %}checked{% endif %}>
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-label">Scam suspected</span>
+            </label>
+            <div class="form-error" data-field-error="is_scam_suspected"></div>
+        </div>
+        <div class="form-field">
+            <label for="quick-scam-reasons-{{ lead.pk }}">Scam reasons</label>
+            <textarea id="quick-scam-reasons-{{ lead.pk }}" name="scam_reasons" rows="2" data-autosave="scam_reasons">{{ lead.scam_reasons|default_if_none:"" }}</textarea>
+            <div class="form-error" data-field-error="scam_reasons"></div>
+        </div>
+        <div class="form-field">
+            <label class="toggle">
+                <input type="checkbox" name="is_archived" data-autosave="is_archived" {% if lead.is_archived %}checked{% endif %}>
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-label">Archived</span>
+            </label>
+            <div class="form-error" data-field-error="is_archived"></div>
+        </div>
+        <div class="quick-notes">
+            <div class="quick-notes__label">Notes</div>
+            <div class="quick-notes__text">{{ lead.notes|default:"No notes yet."|truncatechars:140 }}</div>
+            <button type="button" class="btn btn--ghost btn-compact" data-open-editor>Open full editor</button>
+        </div>
+        <div class="actions-row">
+            {% if lead.job_url %}
+                <a class="btn btn--ghost btn-compact" href="{{ lead.job_url }}" target="_blank" rel="noopener">Open posting</a>
+            {% endif %}
+            {% if application %}
+                <a class="btn btn-compact" href="{% url 'tracker:application_list' %}?selected={{ application.pk }}">Open application</a>
+            {% else %}
+                <form method="post" action="{% url 'tracker:lead_convert' lead.pk %}">
+                    {% csrf_token %}
+                    <button class="btn btn-compact" type="submit">Convert to application</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+</div>

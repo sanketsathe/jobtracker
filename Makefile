@@ -54,6 +54,33 @@ test-fast:
 		USE_SQLITE_FOR_TESTS=1 $(PYTHON) manage.py test tracker --keepdb; \
 	fi
 
+test-docker-autoports:
+	@set -e; \
+	DB_PORT=$$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"); \
+	REDIS_PORT=$$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"); \
+	PROJECT=jobtracker_$$(date +%s); \
+	EXIT_CODE=0; \
+	READY=0; \
+	echo "Using DB_PORT=$$DB_PORT REDIS_PORT=$$REDIS_PORT COMPOSE_PROJECT_NAME=$$PROJECT"; \
+	COMPOSE_PROJECT_NAME=$$PROJECT DB_PORT=$$DB_PORT REDIS_PORT=$$REDIS_PORT docker compose -p $$PROJECT up -d --force-recreate --remove-orphans; \
+	for i in $$(seq 1 20); do \
+		if COMPOSE_PROJECT_NAME=$$PROJECT DB_PORT=$$DB_PORT REDIS_PORT=$$REDIS_PORT docker compose -p $$PROJECT exec -T db pg_isready -U jobtracker -d jobtracker >/dev/null 2>&1; then READY=1; break; fi; \
+		echo "Waiting for Postgres to be ready..."; \
+		sleep 2; \
+	done; \
+	if [ "$$READY" = "1" ]; then \
+		echo "Postgres ready on port $$DB_PORT; running tests..."; \
+		AUTO_DOCKER=0 DB_PORT=$$DB_PORT REDIS_PORT=$$REDIS_PORT $(PYTHON) manage.py test tracker --noinput || EXIT_CODE=$$?; \
+	else \
+		echo "Postgres did not become ready in time."; \
+		EXIT_CODE=1; \
+	fi; \
+	if [ "$$EXIT_CODE" -ne 0 ]; then \
+		COMPOSE_PROJECT_NAME=$$PROJECT docker compose -p $$PROJECT logs db || true; \
+	fi; \
+	COMPOSE_PROJECT_NAME=$$PROJECT DB_PORT=$$DB_PORT REDIS_PORT=$$REDIS_PORT docker compose -p $$PROJECT down --remove-orphans || true; \
+	exit $${EXIT_CODE:-0}
+
 test-clean:
 	@if [ -z "$(PG_SERVICE)" ]; then \
 		echo "Unable to detect Postgres service in $(COMPOSE_FILE). Set PG_SERVICE=<name> and retry."; \

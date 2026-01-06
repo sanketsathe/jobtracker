@@ -1,0 +1,124 @@
+{% extends "layout/base_app.html" %}
+
+{% block title %}Leads | JobTracker{% endblock %}
+
+{% block content_header %}
+<div class="content-header">
+    <div class="page-header">
+        <div>
+            <h1>Leads</h1>
+            <p class="text-subtle">Triage new job leads before converting them into applications.</p>
+        </div>
+    </div>
+    <div class="filter-bar">
+        <form class="filter-controls" method="get">
+            <div class="field field--grow">
+                <input type="search" name="q" value="{{ search_query }}" placeholder="Search title or company">
+            </div>
+            <div class="field">
+                <select name="source" aria-label="Source filter">
+                    <option value="">All sources</option>
+                    {% for code, label in source_choices %}
+                        <option value="{{ code }}" {% if source_filter == code %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <select name="work_mode" aria-label="Work mode filter">
+                    <option value="">Any work mode</option>
+                    {% for code, label in work_mode_choices %}
+                        <option value="{{ code }}" {% if work_mode_filter == code %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <select name="scam" aria-label="Scam filter">
+                    <option value="">Any scam status</option>
+                    <option value="1" {% if scam_filter == "1" %}selected{% endif %}>Scam suspected</option>
+                    <option value="0" {% if scam_filter == "0" %}selected{% endif %}>Not scam</option>
+                </select>
+            </div>
+            <div class="field">
+                <select name="has_app" aria-label="Conversion filter">
+                    <option value="">Any conversion</option>
+                    <option value="1" {% if has_app_filter == "1" %}selected{% endif %}>Converted</option>
+                    <option value="0" {% if has_app_filter == "0" %}selected{% endif %}>Not converted</option>
+                </select>
+            </div>
+            <div class="field">
+                <select name="archived" aria-label="Archive filter">
+                    <option value="0" {% if archived_filter == "0" %}selected{% endif %}>Active</option>
+                    <option value="1" {% if archived_filter == "1" %}selected{% endif %}>Archived</option>
+                </select>
+            </div>
+            <button class="btn secondary" type="submit">Apply</button>
+            <a class="btn btn--ghost" href="{% url 'tracker:lead_list' %}">Clear</a>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+    {% if leads %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th class="col-position" data-col="position">Lead</th>
+                    <th class="col-source" data-col="source">Source</th>
+                    <th class="col-work-mode" data-col="work-mode">Work mode</th>
+                    <th class="col-flags" data-col="flags">Flags</th>
+                    <th class="col-discovered" data-col="discovered">Discovered</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lead in leads %}
+                    <tr class="app-row {% if request.GET.selected == lead.pk|stringformat:'s' %}is-selected{% endif %}" data-app-id="{{ lead.pk }}" data-quick-url="{% url 'tracker:lead_quick' lead.pk %}" data-edit-url="{% url 'tracker:lead_edit' lead.pk %}" data-patch-url="{% url 'tracker:lead_patch' lead.pk %}" tabindex="0" aria-label="Open details for {{ lead.title|default:lead.company }}">
+                        <td data-col="position" data-col-label="Lead" class="position-cell">
+                            <div class="position-title truncate" data-title-display>{{ lead.title|default:lead.company }}</div>
+                            <div class="position-subtitle truncate">
+                                <span data-company-display>{{ lead.company }}</span>
+                                <span data-location-wrap {% if not lead.location %}hidden{% endif %}>
+                                    · <span data-location-display>{{ lead.location }}</span>
+                                </span>
+                                <span data-job-url-wrap {% if not lead.job_url %}hidden{% endif %}>
+                                    · <a class="link-muted" data-job-url-display href="{{ lead.job_url }}" target="_blank" rel="noopener">View posting</a>
+                                </span>
+                            </div>
+                            <noscript>
+                                <div class="text-subtle">
+                                    <a href="{% url 'tracker:lead_edit' lead.pk %}">Open lead details</a>
+                                </div>
+                            </noscript>
+                        </td>
+                        <td data-col="source" data-col-label="Source">
+                            <span data-source-display>{{ lead.get_source_display }}</span>
+                        </td>
+                        <td data-col="work-mode" data-col-label="Work mode">
+                            <span data-work-mode-display>{{ lead.get_work_mode_display }}</span>
+                        </td>
+                        <td data-col="flags" data-col-label="Flags">
+                            <div class="badge-row">
+                                <span class="badge badge--danger" data-scam-badge {% if not lead.is_scam_suspected %}hidden{% endif %}>Scam</span>
+                                <span class="badge badge--info" data-converted-badge {% if not lead.has_app %}hidden{% endif %}>Converted</span>
+                                <span class="badge" data-archived-badge {% if not lead.is_archived %}hidden{% endif %}>Archived</span>
+                            </div>
+                        </td>
+                        <td data-col="discovered" data-col-label="Discovered">
+                            <span class="text-subtle">{{ lead.discovered_at|date:"M d, Y" }}</span>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            {% if search_query or source_filter or work_mode_filter or scam_filter or has_app_filter or archived_filter != "0" %}
+                <p>No leads match these filters.</p>
+                <a class="btn btn--ghost" href="{% url 'tracker:lead_list' %}">Clear filters</a>
+            {% else %}
+                <p>No leads in your inbox yet.</p>
+                <p class="text-subtle">New leads will show up here for triage.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endblock %}

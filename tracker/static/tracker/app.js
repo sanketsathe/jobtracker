@@ -314,7 +314,7 @@
             if (!field) {
                 return;
             }
-            state.lastFieldSnapshot[field] = input.value;
+            state.lastFieldSnapshot[field] = input.type === "checkbox" ? input.checked : input.value;
         });
     }
 
@@ -569,6 +569,22 @@
                 }
             }
         }
+        const sourceEl = row.querySelector("[data-source-display]");
+        if (sourceEl && payload.source_label) {
+            sourceEl.textContent = payload.source_label;
+        }
+        const workModeEl = row.querySelector("[data-work-mode-display]");
+        if (workModeEl && payload.work_mode_label) {
+            workModeEl.textContent = payload.work_mode_label;
+        }
+        const scamBadge = row.querySelector("[data-scam-badge]");
+        if (scamBadge && Object.prototype.hasOwnProperty.call(payload, "is_scam_suspected")) {
+            scamBadge.hidden = !payload.is_scam_suspected;
+        }
+        const archivedBadge = row.querySelector("[data-archived-badge]");
+        if (archivedBadge && Object.prototype.hasOwnProperty.call(payload, "is_archived")) {
+            archivedBadge.hidden = !payload.is_archived;
+        }
     }
 
     function updateBoardCard(payload) {
@@ -642,6 +658,10 @@
                 return;
             }
             if (document.activeElement === input) {
+                return;
+            }
+            if (input.type === "checkbox") {
+                input.checked = Boolean(payload[field]);
                 return;
             }
             input.value = payload[field] || "";
@@ -1282,7 +1302,7 @@
         if (!event.target.matches("[data-autosave]")) {
             return;
         }
-        if (event.target.type === "date") {
+        if (event.target.type === "date" || event.target.type === "checkbox") {
             return;
         }
         const field = event.target.dataset.autosave;
@@ -1295,7 +1315,7 @@
         const editor = state.activeEditor;
         if (editor && editor.contains(event.target) && event.target.matches("[data-autosave]")) {
             const field = event.target.dataset.autosave;
-            const value = event.target.value;
+            const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
             const previousValue = state.lastFieldSnapshot[field] || "";
             state.lastFieldSnapshot[field] = value;
             clearFieldErrors(editor, field);
