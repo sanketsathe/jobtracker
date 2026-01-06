@@ -135,8 +135,13 @@
             </table>
         {% else %}
             <div class="empty-state">
-                <p>No applications yet.</p>
-                <a class="btn" href="{% url 'tracker:application_create' %}">Add your first application</a>
+                {% if search_query or status_filter or due_filter or sort_option %}
+                    <p>No applications match these filters.</p>
+                    <a class="btn btn--ghost" href="?view={{ view_mode }}">Clear filters</a>
+                {% else %}
+                    <p>No applications yet.</p>
+                    <a class="btn" href="{% url 'tracker:application_create' %}">Add your first application</a>
+                {% endif %}
             </div>
         {% endif %}
     {% elif view_mode == 'board' %}
@@ -157,6 +162,17 @@
                                         {% if application.location_text or application.job.location %}
                                             · {{ application.location_text|default:application.job.location }}
                                         {% endif %}
+                                        {% if application.follow_up_on %}
+                                            {% if application.follow_up_on < today %}
+                                                <span class="badge badge--danger">Overdue</span>
+                                            {% elif application.follow_up_on == today %}
+                                                <span class="badge badge--warning">Today</span>
+                                            {% elif application.follow_up_on <= week_end %}
+                                                <span class="badge badge--info">This week</span>
+                                            {% else %}
+                                                <span class="badge">{{ application.follow_up_on|date:"M d" }}</span>
+                                            {% endif %}
+                                        {% endif %}
                                     </div>
                                     <label class="sr-only" for="move-{{ application.pk }}">Move to…</label>
                                     <select id="move-{{ application.pk }}" class="kanban-move" data-move-select data-stop-rowclick data-prev-value="{{ application.status }}">
@@ -174,96 +190,107 @@
             </div>
         {% else %}
             <div class="empty-state">
-                <p>No applications to display yet.</p>
-                <a class="btn" href="{% url 'tracker:application_create' %}">Add your first application</a>
+                {% if search_query or status_filter or due_filter or sort_option %}
+                    <p>No applications match these filters.</p>
+                    <a class="btn btn--ghost" href="?view={{ view_mode }}">Clear filters</a>
+                {% else %}
+                    <p>No applications to display yet.</p>
+                    <a class="btn" href="{% url 'tracker:application_create' %}">Add your first application</a>
+                {% endif %}
             </div>
         {% endif %}
     {% elif view_mode == 'followups' %}
-        <section class="followup-section">
-            <h2>Due Today</h2>
-            {% if today_items %}
-                <div class="followup-grid">
-                    {% for item in today_items %}
-                        <article class="followup-card app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
-                            <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
-                            <div class="followup-card__meta">
-                                {{ item.application.job.company }}
-                                <span class="badge badge--info">{{ item.due_on|date:"M d" }}</span>
+        {% if not today_items and not overdue_items and not week_items %}
+            <div class="empty-state">
+                <p>You are all caught up.</p>
+            </div>
+        {% else %}
+            <section class="followup-section">
+                <h2>Due Today</h2>
+                {% if today_items %}
+                    <div class="followup-grid">
+                        {% for item in today_items %}
+                            <article class="followup-card app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
+                                <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
+                                <div class="followup-card__meta">
+                                    {{ item.application.job.company }}
+                                    <span class="badge badge--info">{{ item.due_on|date:"M d" }}</span>
+                                    {% if item.type == "followup" %}
+                                        <span class="pill">Follow-up</span>
+                                    {% else %}
+                                        <span class="pill">Primary</span>
+                                    {% endif %}
+                                </div>
                                 {% if item.type == "followup" %}
-                                    <span class="pill">Follow-up</span>
+                                    <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
                                 {% else %}
-                                    <span class="pill">Primary</span>
+                                    <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
                                 {% endif %}
-                            </div>
-                            {% if item.type == "followup" %}
-                                <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
-                            {% else %}
-                                <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
-                            {% endif %}
-                        </article>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <p class="text-subtle">No follow-ups due today.</p>
-            {% endif %}
-        </section>
+                            </article>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-subtle">No follow-ups due today.</p>
+                {% endif %}
+            </section>
 
-        <section class="followup-section">
-            <h2>Overdue</h2>
-            {% if overdue_items %}
-                <div class="followup-grid">
-                    {% for item in overdue_items %}
-                        <article class="followup-card followup-card--overdue app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
-                            <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
-                            <div class="followup-card__meta">
-                                {{ item.application.job.company }}
-                                <span class="badge badge--danger">{{ item.due_on|date:"M d" }}</span>
+            <section class="followup-section">
+                <h2>Overdue</h2>
+                {% if overdue_items %}
+                    <div class="followup-grid">
+                        {% for item in overdue_items %}
+                            <article class="followup-card followup-card--overdue app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
+                                <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
+                                <div class="followup-card__meta">
+                                    {{ item.application.job.company }}
+                                    <span class="badge badge--danger">{{ item.due_on|date:"M d" }}</span>
+                                    {% if item.type == "followup" %}
+                                        <span class="pill">Follow-up</span>
+                                    {% else %}
+                                        <span class="pill">Primary</span>
+                                    {% endif %}
+                                </div>
                                 {% if item.type == "followup" %}
-                                    <span class="pill">Follow-up</span>
+                                    <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
                                 {% else %}
-                                    <span class="pill">Primary</span>
+                                    <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
                                 {% endif %}
-                            </div>
-                            {% if item.type == "followup" %}
-                                <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
-                            {% else %}
-                                <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
-                            {% endif %}
-                        </article>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <p class="text-subtle">No overdue follow-ups.</p>
-            {% endif %}
-        </section>
+                            </article>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-subtle">No overdue follow-ups.</p>
+                {% endif %}
+            </section>
 
-        <section class="followup-section">
-            <h2>This Week</h2>
-            {% if week_items %}
-                <div class="followup-grid">
-                    {% for item in week_items %}
-                        <article class="followup-card app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
-                            <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
-                            <div class="followup-card__meta">
-                                {{ item.application.job.company }}
-                                <span class="badge badge--warning">{{ item.due_on|date:"M d" }}</span>
+            <section class="followup-section">
+                <h2>This Week</h2>
+                {% if week_items %}
+                    <div class="followup-grid">
+                        {% for item in week_items %}
+                            <article class="followup-card app-row" data-app-id="{{ item.application.pk }}" data-quick-url="{% url 'tracker:application_quick' item.application.pk %}" data-edit-url="{% url 'tracker:application_edit' item.application.pk %}" data-patch-url="{% url 'tracker:application_patch' item.application.pk %}" tabindex="0">
+                                <div class="followup-card__title">{{ item.application.job.title|default:item.application.job.company }}</div>
+                                <div class="followup-card__meta">
+                                    {{ item.application.job.company }}
+                                    <span class="badge badge--warning">{{ item.due_on|date:"M d" }}</span>
+                                    {% if item.type == "followup" %}
+                                        <span class="pill">Follow-up</span>
+                                    {% else %}
+                                        <span class="pill">Primary</span>
+                                    {% endif %}
+                                </div>
                                 {% if item.type == "followup" %}
-                                    <span class="pill">Follow-up</span>
+                                    <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
                                 {% else %}
-                                    <span class="pill">Primary</span>
+                                    <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
                                 {% endif %}
-                            </div>
-                            {% if item.type == "followup" %}
-                                <div class="text-subtle">{{ item.followup.note|default:"No note" }}</div>
-                            {% else %}
-                                <div class="text-subtle">{{ item.application.next_action|default:"No next action" }}</div>
-                            {% endif %}
-                        </article>
-                    {% endfor %}
-                </div>
-            {% else %}
-                <p class="text-subtle">You are all caught up.</p>
-            {% endif %}
-        </section>
+                            </article>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-subtle">No follow-ups coming up.</p>
+                {% endif %}
+            </section>
+        {% endif %}
     {% endif %}
 {% endblock %}

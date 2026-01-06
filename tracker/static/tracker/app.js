@@ -163,6 +163,16 @@
         });
     }
 
+    function retryLastSave() {
+        if (!state.lastFailedPayload) {
+            return;
+        }
+        state.pendingPayload = { ...state.lastFailedPayload };
+        state.lastFailedPayload = null;
+        setSaveStatus("saving");
+        flushSave();
+    }
+
     function clearSaveStatusTimers() {
         if (state.saveStatusTimeout) {
             window.clearTimeout(state.saveStatusTimeout);
@@ -437,7 +447,7 @@
                 if (editor && editor.dataset.appId === activeId) {
                     setSaveStatus("error");
                     applyFieldErrors(editor, error.fieldErrors);
-                    showToast("Could not save. Retry.");
+                    showToast("Could not save. Retry.", "Retry", retryLastSave);
                 }
             })
             .finally(() => {
@@ -850,7 +860,7 @@
             });
     }
 
-    function trapFocus(modalEl) {
+    function trapFocus(modalEl, initialFocusEl) {
         if (!modalEl) {
             return;
         }
@@ -875,7 +885,10 @@
             }
         };
         modalEl.addEventListener("keydown", state.focusTrapHandler);
-        first.focus();
+        const initial = initialFocusEl || first;
+        if (initial && typeof initial.focus === "function") {
+            initial.focus();
+        }
     }
 
     function openModal(url, appId, mode) {
@@ -920,7 +933,10 @@
                     setActiveEditor(editor, "modal");
                 }
                 if (mode !== "quick") {
-                    trapFocus(overlay.modalRoot);
+                    const initialFocus = overlay.modalRoot.querySelector(
+                        ".modal-body input, .modal-body select, .modal-body textarea"
+                    );
+                    trapFocus(overlay.modalRoot, initialFocus);
                 }
             })
             .catch(() => {
@@ -1216,12 +1232,7 @@
 
         const saveButton = event.target.closest("[data-save-status]");
         if (saveButton && saveButton.classList.contains("is-error")) {
-            if (state.lastFailedPayload) {
-                state.pendingPayload = { ...state.lastFailedPayload };
-                state.lastFailedPayload = null;
-                setSaveStatus("saving");
-                flushSave();
-            }
+            retryLastSave();
             return;
         }
 
