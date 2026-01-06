@@ -4,7 +4,7 @@ import json
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -56,6 +56,16 @@ class AuthRequiredTests(BaseTestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("/accounts/login/", response["Location"])
+
+    def test_board_requires_login(self):
+        response = self.client.get(reverse("tracker:board"), follow=True)
+
+        self.assertEqual(response.request["PATH_INFO"], "/accounts/login/")
+
+    def test_profile_requires_login(self):
+        response = self.client.get(reverse("tracker:profile"), follow=True)
+
+        self.assertEqual(response.request["PATH_INFO"], "/accounts/login/")
 
 
 class OwnershipTests(BaseTestCase):
@@ -170,6 +180,26 @@ class ApplicationFilterTests(BaseTestCase):
 
         self.assertEqual(applications, [self.app_interview])
 
+    def test_sort_follow_up_asc(self):
+        response = self.client.get(
+            reverse("tracker:application_list"),
+            {"sort": "follow_up"},
+        )
+        applications = list(response.context["applications"])
+
+        self.assertEqual(
+            applications,
+            [self.app_overdue, self.app_today, self.app_week, self.app_interview],
+        )
+
+    def test_empty_state_shows_clear_filters(self):
+        response = self.client.get(
+            reverse("tracker:application_list"),
+            {"search": "nope-nope-nope"},
+        )
+
+        self.assertContains(response, "Clear filters")
+
 
 class ExportTests(BaseTestCase):
     def test_export_is_owner_scoped(self):
@@ -271,6 +301,78 @@ class PatchValidationTests(BaseTestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("follow_up_on", response.json()["field_errors"])
+
+
+class CsrfProtectionTests(BaseTestCase):
+    def setUp(self):
+        self.user = self.create_user("alice")
+        self.application = self.create_application(owner=self.user)
+        self.csrf_client = Client(enforce_csrf_checks=True)
+        self.csrf_client.login(username="alice", password="password123")
+
+    def test_patch_requires_csrf(self):
+        response = self.csrf_client.patch(
+            reverse("tracker:application_patch", args=[self.application.pk]),
+            data=json.dumps({"notes": "No token"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_followup_create_requires_csrf(self):
+        response = self.csrf_client.post(
+            reverse("tracker:application_followup_create", args=[self.application.pk]),
+            data=json.dumps({"due_on": timezone.localdate().isoformat()}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_followup_update_requires_csrf(self):
+        followup = FollowUp.objects.create(
+            application=self.application,
+            due_on=timezone.localdate(),
+        )
+
+        response = self.csrf_client.patch(
+            reverse("tracker:followup_update", args=[followup.pk]),
+            data=json.dumps({"is_completed": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_quick_add_requires_csrf(self):
+        response = self.csrf_client.post(
+            reverse("tracker:application_quick_add"),
+            data=json.dumps({"company": "ACME", "title": "Engineer"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_profile_quick_update_requires_csrf(self):
+        response = self.csrf_client.post(
+            reverse("tracker:profile_quick"),
+            data=json.dumps({"email_reminders_enabled": True}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+
+class FollowUpsEmptyStateTests(BaseTestCase):
+    def test_followups_empty_state(self):
+        user = self.create_user("alice")
+        self.client.login(username="alice", password="password123")
+        self.create_application(owner=user, follow_up_on=None)
+
+        response = self.client.get(
+            reverse("tracker:application_list"),
+            {"view": "followups"},
+        )
+
+        self.assertContains(response, "You are all caught up.")
 
 
 class KanbanMoveTests(BaseTestCase):
